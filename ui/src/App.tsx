@@ -66,7 +66,7 @@ export default function CrawlerInterface() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center font-mono p-4 selection:bg-green-500/30">
-      <div className="w-full max-w-4xl bg-slate-900/80 backdrop-blur-md rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[800px]">
+      <div className="w-full max-w-4xl bg-slate-900/80 backdrop-blur-md rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col h-[85vh]">
 
         {/* --- Top Bar (Window Controls & Stats) --- */}
         <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between select-none">
