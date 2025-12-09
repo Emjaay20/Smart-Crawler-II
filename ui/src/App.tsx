@@ -3,7 +3,7 @@ import { useSmartCrawl } from './hooks/useSmartCrawl';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Terminal, Settings, Download, Copy, Play,
-  AlertCircle, CheckCircle, Wifi, Activity, ChevronDown
+  CheckCircle, Wifi, Activity, ChevronDown
 } from 'lucide-react';
 
 interface LogEntry {
@@ -19,12 +19,7 @@ export default function CrawlerInterface() {
   const [showConfig, setShowConfig] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  // Fake settings state
-  const [config, setConfig] = useState({
-    depth: 1,
-    timeout: 3000,
-    renderJS: true
-  });
+
 
   const logsEndRef = useRef<HTMLDivElement>(null);
 
