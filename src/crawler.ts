@@ -3,13 +3,20 @@ import type { Browser, BrowserContext, Page, Route } from 'playwright';
 import { program } from 'commander';
 import fs from 'fs-extra';
 
-program
-    .version('1.0.0')
-    .requiredOption('-u, --url <url>', 'URL to crawl')
-    .option('-o, --output <file>', 'Output JSON file', 'results.json')
-    .parse(process.argv);
+import { fileURLToPath } from 'url';
 
-const options = program.opts();
+const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+    program
+        .version('1.0.0')
+        .requiredOption('-u, --url <url>', 'URL to crawl')
+        .option('-o, --output <file>', 'Output JSON file', 'results.json')
+        .parse(process.argv);
+
+    const options = program.opts();
+    crawl(options.url, options.output);
+}
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> {
     try {
@@ -22,7 +29,7 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, delay = 2000): Pr
     }
 }
 
-async function crawl(url: string, outputFile: string) {
+export async function crawl(url: string, outputFile: string) {
     console.log(`Starting crawl for: ${url}`);
 
     const browser: Browser = await chromium.launch({ headless: true });
@@ -61,40 +68,87 @@ async function crawl(url: string, outputFile: string) {
             const title = document.title;
             const metaDescription = document.querySelector('meta[name="description"]')?.getAttribute('content');
 
-            const items: any[] = [];
-            const potentialContainers = document.querySelectorAll('article, .product, .item, .card, li, tr');
+            let items: any[] = [];
+
+            // 1. Expanded Selectors for Modern Apps (YouTube, SPAs, etc)
+            const selectors = [
+                'article', '.product', '.item', '.card', 'li', 'tr',
+                '[role="article"]', '[role="listitem"]',
+                'ytd-video-renderer', 'ytd-rich-item-renderer', 'ytd-compact-video-renderer', // YouTube specific
+                '.result', '.entry', '.post'
+            ];
+
+            const potentialContainers = document.querySelectorAll(selectors.join(', '));
 
             potentialContainers.forEach(el => {
-                const text = (el as HTMLElement).innerText?.trim();
-                const link = el.querySelector('a')?.href;
-                if (text && text.length > 20 && link) {
+                const htmlEl = el as HTMLElement;
+
+                // Smarter Text Extraction
+                let text = htmlEl.innerText?.trim();
+                if (!text) text = htmlEl.getAttribute('aria-label') || htmlEl.getAttribute('title') || '';
+
+                // Clean up text (remove excessive newlines/spaces)
+                text = text.replace(/\s+/g, ' ').trim();
+
+                // Find Link
+                const linkEl = el.querySelector('a');
+                const link = linkEl?.href;
+
+                // Find Image (optional but good for context)
+                const imgEl = el.querySelector('img');
+                const image = imgEl?.src;
+
+                if (text && text.length > 10 && link) {
                     items.push({
-                        text: text.substring(0, 100) + '...',
-                        link: link
+                        text: text.substring(0, 150) + (text.length > 150 ? '...' : ''),
+                        link: link,
+                        image: image
                     });
                 }
             });
 
+            // 2. Fallback: If no items found, try a broad sweep of links with text
+            if (items.length === 0) {
+                const allLinks = document.querySelectorAll('a');
+                allLinks.forEach(a => {
+                    let text = a.innerText?.trim();
+                    if (!text) text = a.getAttribute('aria-label') || a.getAttribute('title') || '';
+                    text = text.replace(/\s+/g, ' ').trim();
+
+                    if (text && text.length > 20 && a.href && !a.href.startsWith('javascript:')) {
+                        items.push({
+                            text: text.substring(0, 100) + '...',
+                            link: a.href
+                        });
+                    }
+                });
+            }
+
+            // Deduplicate items by link
+            const uniqueItems = Array.from(new Map(items.map(item => [item.link, item])).values());
+
             return {
                 title,
                 metaDescription,
-                itemCount: items.length,
-                items: items.slice(0, 10)
+                itemCount: uniqueItems.length,
+                items: uniqueItems.slice(0, 20) // Increased limit
             };
         }));
 
         console.log('Extraction complete.');
-        console.log(JSON.stringify(data, null, 2));
+        // console.log(JSON.stringify(data, null, 2));
 
         await fs.outputJson(outputFile, data, { spaces: 2 });
         console.log(`Results saved to ${outputFile}`);
+
+        return data;
 
     } catch (error) {
         console.error('Crawl failed:', error);
         const screenshotPath = `error-${Date.now()}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         console.log(`Screenshot saved to ${screenshotPath}`);
-        process.exit(1);
+        throw error;
     } finally {
         await browser.close();
     }
@@ -119,4 +173,4 @@ async function autoScroll(page: Page) {
     });
 }
 
-crawl(options.url, options.output);
+

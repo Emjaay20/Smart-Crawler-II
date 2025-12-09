@@ -11,5 +11,8 @@ COPY . .
 # Build TypeScript
 RUN npx tsc
 
+# Expose port
+EXPOSE 3000
+
 # Entry point
-ENTRYPOINT ["node", "dist/crawler.js"]
+CMD ["node", "dist/server.js"]

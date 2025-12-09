@@ -5,20 +5,30 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:server": "tsx src/server.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "body-parser": "^2.2.1",
     "commander": "^14.0.2",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
     "fs-extra": "^11.3.2",
-    "playwright": "^1.57.0"
+    "playwright": "^1.57.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@types/body-parser": "^1.19.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^24.10.1",
+    "@types/uuid": "^10.0.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
 }
