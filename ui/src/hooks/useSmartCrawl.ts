@@ -1,102 +1,137 @@
 import { useState, useRef } from 'react';
 
-export interface CrawlResult {
-    status: 'completed' | 'failed' | 'pending' | 'crawling';
-    data?: any;
-    error?: string;
+export interface JobLog {
+  time: string;
+  level: 'info' | 'error' | 'success';
+  msg: string;
 }
 
+export interface CrawlResult {
+  status: 'completed' | 'failed' | 'pending' | 'crawling';
+  data?: unknown;
+  error?: string;
+  errorCode?: string;
+  logs?: JobLog[];
+}
+
+export type JobMode = 'scrape' | 'map' | 'crawl';
+
+export interface ScrapeOptions {
+  timeoutMs: number;
+  userAgent: string;
+  js: boolean | 'auto';
+  mode: JobMode;
+  limit?: number;
+}
+
+export interface OpsStats {
+  scrapeCompleted: number;
+  scrapeFailed: number;
+  engineHttp: number;
+  enginePlaywright: number;
+  durationAvgMs: number;
+  durationP95Ms: number;
+  mapLinks: number;
+  crawlPages: number;
+}
+
+const apiBase = () => import.meta.env.VITE_API_URL ?? '';
+
 export const useSmartCrawl = () => {
-    const [status, setStatus] = useState<'idle' | 'crawling' | 'success' | 'error' | 'timeout'>('idle');
-    const [progress, setProgress] = useState(0);
-    const [data, setData] = useState<any>(null);
+  const [status, setStatus] = useState<'idle' | 'crawling' | 'success' | 'error' | 'timeout'>('idle');
+  const [progress, setProgress] = useState(0);
+  const [data, setData] = useState<unknown>(null);
+  const [logs, setLogs] = useState<JobLog[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-    // Refs to manage intervals without causing re-renders
-    const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const attempts = useRef(0);
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const attempts = useRef(0);
 
-    const MAX_ATTEMPTS = 30; // 60 seconds total
+  const clearPoll = () => {
+    if (pollTimer.current) {
+      clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+  };
 
-    const startJob = async (url: string) => {
-        setStatus('crawling');
-        setProgress(10);
-        attempts.current = 0;
+  const startJob = async (url: string, options: ScrapeOptions) => {
+    clearPoll();
+    setStatus('crawling');
+    setProgress(15);
+    setData(null);
+    setError(null);
+    setLogs([{ time: new Date().toISOString(), level: 'info', msg: `Queued ${options.mode} ${url}` }]);
+    attempts.current = 0;
+    const maxAttempts = Math.max(30, Math.ceil(options.timeoutMs / 2000) + 5);
 
-        // 1. Start the "Fake" Progress Bar
-        if (progressTimer.current) clearInterval(progressTimer.current);
-        progressTimer.current = setInterval(() => {
-            setProgress((old) => {
-                if (old >= 90) return 90; // Stall at 90%
-                return old + Math.random() * 5; // Random increments
-            });
-        }, 1000);
+    try {
+      const path = options.mode === 'map' ? '/v1/map' : options.mode === 'crawl' ? '/v1/crawl' : '/v1/scrape';
+      const res = await fetch(`${apiBase()}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          timeoutMs: options.timeoutMs,
+          userAgent: options.userAgent,
+          js: options.js,
+          limit: options.limit,
+          formats: ['markdown', 'links', 'metadata', 'html'],
+          onlyMainContent: true,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error((body as { error?: string }).error || 'Failed to start job');
+      }
+      const { jobId } = await res.json() as { jobId: string };
 
-        try {
-            // 2. Dispatch Job
-            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-            const res = await fetch(`${API_URL}/crawl`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url }),
-            });
-            const { jobId } = await res.json();
-
-            // 3. Start Polling
-            if (pollTimer.current) clearInterval(pollTimer.current);
-            pollTimer.current = setInterval(async () => {
-                attempts.current += 1;
-
-                // A. TIMEOUT SAFETY
-                if (attempts.current > MAX_ATTEMPTS) {
-                    if (pollTimer.current) clearInterval(pollTimer.current);
-                    if (progressTimer.current) clearInterval(progressTimer.current);
-                    setStatus('timeout');
-                    return;
-                }
-
-                // B. CHECK STATUS
-                try {
-                    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-                    const statusRes = await fetch(`${API_URL}/status/${jobId}`);
-                    const result: CrawlResult = await statusRes.json();
-
-                    if (result.status === 'completed') {
-                        if (pollTimer.current) clearInterval(pollTimer.current);
-                        if (progressTimer.current) clearInterval(progressTimer.current);
-                        setProgress(100); // Jump to finish
-                        setData(result.data);
-                        setStatus('success');
-                        // Trigger download automatically
-                        downloadFile(result.data, `crawl-${jobId}.json`);
-                    }
-                    else if (result.status === 'failed') {
-                        if (pollTimer.current) clearInterval(pollTimer.current);
-                        if (progressTimer.current) clearInterval(progressTimer.current);
-                        setStatus('error');
-                        setProgress(0);
-                    }
-                } catch (e) {
-                    console.error("Polling error", e);
-                }
-            }, 2000);
-
-        } catch (err) {
-            console.error(err);
-            setStatus('error');
-            if (progressTimer.current) clearInterval(progressTimer.current);
+      pollTimer.current = setInterval(async () => {
+        attempts.current += 1;
+        if (attempts.current > maxAttempts) {
+          clearPoll();
+          setStatus('timeout');
+          setError('Timed out waiting for job');
+          return;
         }
-    };
+        try {
+          const statusRes = await fetch(`${apiBase()}/v1/jobs/${jobId}`);
+          const result = await statusRes.json() as CrawlResult;
+          if (result.logs) setLogs(result.logs);
+          if (result.status === 'crawling' || result.status === 'pending') {
+            setProgress(result.status === 'pending' ? 20 : 55);
+            return;
+          }
+          clearPoll();
+          if (result.status === 'completed') {
+            setProgress(100);
+            setData(result.data);
+            setStatus('success');
+          } else {
+            setStatus('error');
+            setError(result.error || 'Job failed');
+            setProgress(0);
+          }
+        } catch (err) {
+          console.error('Polling error', err);
+        }
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setStatus('error');
+      setError(err instanceof Error ? err.message : 'Failed to start job');
+      setProgress(0);
+    }
+  };
 
-    const downloadFile = (json: any, name: string) => {
-        const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = name;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    return { status, progress, startJob, data };
+  return { status, progress, startJob, data, logs, error };
 };
+
+export async function fetchOpsStats(): Promise<OpsStats | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/stats`);
+    if (!res.ok) return null;
+    return await res.json() as OpsStats;
+  } catch {
+    return null;
+  }
+}

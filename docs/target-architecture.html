@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartCrawl Target Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot {
+      width: 12px; height: 12px; background: #22d3ee; border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 980px; display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>SmartCrawl v3 — Target Architecture</h1>
+      </div>
+      <p class="subtitle">Single Docker image on AetherHost · fetch-first, Playwright fallback · jobs, metrics, clean markdown</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1080 720">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- AetherHost boundary -->
+        <rect x="200" y="28" width="850" height="660" rx="12" fill="rgba(251, 191, 36, 0.05)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="216" y="48" fill="#fbbf24" font-size="10" font-weight="600">AetherHost tenant · Traefik TLS · health :3000 · 1 browser cap</text>
+
+        <!-- Clients -->
+        <rect x="24" y="120" width="150" height="54" rx="6" fill="#0f172a"/>
+        <rect x="24" y="120" width="150" height="54" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="99" y="142" fill="white" font-size="11" font-weight="600" text-anchor="middle">Playground</text>
+        <text x="99" y="158" fill="#94a3b8" font-size="9" text-anchor="middle">React UI</text>
+
+        <rect x="24" y="196" width="150" height="54" rx="6" fill="#0f172a"/>
+        <rect x="24" y="196" width="150" height="54" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="99" y="218" fill="white" font-size="11" font-weight="600" text-anchor="middle">SDK / curl</text>
+        <text x="99" y="234" fill="#94a3b8" font-size="9" text-anchor="middle">sc, python, REST</text>
+
+        <rect x="24" y="272" width="150" height="54" rx="6" fill="#0f172a"/>
+        <rect x="24" y="272" width="150" height="54" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="99" y="294" fill="white" font-size="11" font-weight="600" text-anchor="middle">Agents</text>
+        <text x="99" y="310" fill="#94a3b8" font-size="9" text-anchor="middle">RAG / tools</text>
+
+        <!-- Edge -->
+        <rect x="230" y="196" width="150" height="54" rx="6" fill="#0f172a"/>
+        <rect x="230" y="196" width="150" height="54" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="305" y="218" fill="white" font-size="11" font-weight="600" text-anchor="middle">Traefik</text>
+        <text x="305" y="234" fill="#94a3b8" font-size="9" text-anchor="middle">HTTPS :443</text>
+
+        <!-- Security group around API -->
+        <rect x="420" y="72" width="300" height="430" rx="10" fill="transparent" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="432" y="90" fill="#fb7185" font-size="8">api process · Bearer keys · rate limit</text>
+
+        <!-- API boxes -->
+        <rect x="440" y="108" width="260" height="54" rx="6" fill="#0f172a"/>
+        <rect x="440" y="108" width="260" height="54" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="570" y="130" fill="white" font-size="11" font-weight="600" text-anchor="middle">Gateway</text>
+        <text x="570" y="146" fill="#94a3b8" font-size="9" text-anchor="middle">auth · quotas · OpenAPI</text>
+
+        <rect x="440" y="182" width="260" height="70" rx="6" fill="#0f172a"/>
+        <rect x="440" y="182" width="260" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="570" y="204" fill="white" font-size="11" font-weight="600" text-anchor="middle">Job API</text>
+        <text x="570" y="220" fill="#94a3b8" font-size="9" text-anchor="middle">POST /v1/scrape  /crawl  /map</text>
+        <text x="570" y="236" fill="#94a3b8" font-size="9" text-anchor="middle">GET /v1/jobs/:id</text>
+
+        <rect x="440" y="274" width="260" height="54" rx="6" fill="#0f172a"/>
+        <rect x="440" y="274" width="260" height="54" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="570" y="296" fill="white" font-size="12" font-weight="600" text-anchor="middle">Playground (static)</text>
+        <text x="570" y="312" fill="#94a3b8" font-size="9" text-anchor="middle">served from same process</text>
+
+        <rect x="440" y="350" width="260" height="54" rx="6" fill="#0f172a"/>
+        <rect x="440" y="350" width="260" height="54" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="570" y="372" fill="white" font-size="11" font-weight="600" text-anchor="middle">/health  /ready  /metrics</text>
+        <text x="570" y="388" fill="#94a3b8" font-size="9" text-anchor="middle">pino JSON logs</text>
+
+        <rect x="440" y="424" width="260" height="54" rx="6" fill="#0f172a"/>
+        <rect x="440" y="424" width="260" height="54" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="570" y="446" fill="white" font-size="11" font-weight="600" text-anchor="middle">Queue</text>
+        <text x="570" y="462" fill="#94a3b8" font-size="9" text-anchor="middle">SQLite / Redis  concurrency=1</text>
+
+        <!-- Worker column -->
+        <rect x="760" y="108" width="260" height="70" rx="6" fill="#0f172a"/>
+        <rect x="760" y="108" width="260" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="890" y="130" fill="white" font-size="11" font-weight="600" text-anchor="middle">Worker</text>
+        <text x="890" y="146" fill="#94a3b8" font-size="9" text-anchor="middle">robots · rate limit · retry</text>
+        <text x="890" y="162" fill="#94a3b8" font-size="9" text-anchor="middle">timeouts · error taxonomy</text>
+
+        <rect x="760" y="198" width="260" height="70" rx="6" fill="#0f172a"/>
+        <rect x="760" y="198" width="260" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="890" y="220" fill="white" font-size="11" font-weight="600" text-anchor="middle">Fetch engine</text>
+        <text x="890" y="236" fill="#94a3b8" font-size="9" text-anchor="middle">HTTP + Readability first</text>
+        <text x="890" y="252" fill="#34d399" font-size="8" text-anchor="middle">Playwright only if JS needed</text>
+
+        <rect x="760" y="288" width="260" height="70" rx="6" fill="#0f172a"/>
+        <rect x="760" y="288" width="260" height="70" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="890" y="310" fill="white" font-size="11" font-weight="600" text-anchor="middle">Browser pool</text>
+        <text x="890" y="326" fill="#94a3b8" font-size="9" text-anchor="middle">Chromium · max 1</text>
+        <text x="890" y="342" fill="#94a3b8" font-size="9" text-anchor="middle">block assets · recycle</text>
+
+        <rect x="760" y="378" width="260" height="70" rx="6" fill="#0f172a"/>
+        <rect x="760" y="378" width="260" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="890" y="400" fill="white" font-size="11" font-weight="600" text-anchor="middle">Extract pipeline</text>
+        <text x="890" y="416" fill="#94a3b8" font-size="9" text-anchor="middle">main content → markdown</text>
+        <text x="890" y="432" fill="#94a3b8" font-size="9" text-anchor="middle">links · metadata · JSON schema</text>
+
+        <!-- Data -->
+        <rect x="440" y="540" width="180" height="60" rx="6" fill="#0f172a"/>
+        <rect x="440" y="540" width="180" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="530" y="564" fill="white" font-size="11" font-weight="600" text-anchor="middle">Job store</text>
+        <text x="530" y="580" fill="#94a3b8" font-size="9" text-anchor="middle">SQLite / Postgres</text>
+
+        <rect x="650" y="540" width="180" height="60" rx="6" fill="#0f172a"/>
+        <rect x="650" y="540" width="180" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="740" y="564" fill="white" font-size="11" font-weight="600" text-anchor="middle">Artifacts</text>
+        <text x="740" y="580" fill="#94a3b8" font-size="9" text-anchor="middle">markdown · json · logs</text>
+
+        <rect x="860" y="540" width="160" height="60" rx="6" fill="#0f172a"/>
+        <rect x="860" y="540" width="160" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="940" y="564" fill="white" font-size="11" font-weight="600" text-anchor="middle">Alerts</text>
+        <text x="940" y="580" fill="#94a3b8" font-size="9" text-anchor="middle">webhook / Slack</text>
+
+        <rect x="24" y="540" width="150" height="60" rx="6" fill="#0f172a"/>
+        <rect x="24" y="540" width="150" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="99" y="564" fill="white" font-size="11" font-weight="600" text-anchor="middle">Target web</text>
+        <text x="99" y="580" fill="#94a3b8" font-size="9" text-anchor="middle">public pages only</text>
+
+        <!-- Arrows: clients -> traefik -->
+        <line x1="174" y1="223" x2="228" y2="223" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="201" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">HTTPS</text>
+
+        <line x1="380" y1="223" x2="438" y2="223" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <line x1="570" y1="236" x2="570" y2="272" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="570" y1="162" x2="570" y2="180" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="570" y1="328" x2="570" y2="348" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="570" y1="404" x2="570" y2="422" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <line x1="700" y1="451" x2="758" y2="143" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="748" y="280" fill="#94a3b8" font-size="8">dequeue</text>
+
+        <line x1="890" y1="178" x2="890" y2="196" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="890" y1="268" x2="890" y2="286" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="890" y1="358" x2="890" y2="376" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <line x1="174" y1="570" x2="758" y2="233" stroke="#94a3b8" stroke-width="1" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
+        <text x="280" y="430" fill="#94a3b8" font-size="8">egress</text>
+
+        <line x1="570" y1="478" x2="530" y2="538" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="890" y1="448" x2="740" y2="538" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="940" y1="448" x2="940" y2="538" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- Legend -->
+        <text x="24" y="640" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="24" y="650" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="46" y="658" fill="#94a3b8" font-size="8">Frontend</text>
+        <rect x="120" y="650" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+        <text x="142" y="658" fill="#94a3b8" font-size="8">Backend</text>
+        <rect x="216" y="650" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="238" y="658" fill="#94a3b8" font-size="8">Store</text>
+        <rect x="300" y="650" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="322" y="658" fill="#94a3b8" font-size="8">Edge / alerts</text>
+        <rect x="430" y="650" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="452" y="658" fill="#94a3b8" font-size="8">Security / browser</text>
+        <line x1="580" y1="655" x2="596" y2="655" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="602" y="658" fill="#94a3b8" font-size="8">Egress to public web</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>What we refuse to fake</h3>
+        </div>
+        <ul>
+          <li>• No costume logs, fake RAM, or dead config</li>
+          <li>• Jobs survive restart (SQLite, not a Map)</li>
+          <li>• Real /health so AetherHost probes pass</li>
+          <li>• robots.txt + rate limits, not stealth scraping</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>AetherHost constraints</h3>
+        </div>
+        <ul>
+          <li>• One container, port 3000, Docker image</li>
+          <li>• Chromium is the RAM bomb — cap at 1</li>
+          <li>• Fetch+Readability is the default path</li>
+          <li>• Playwright only when the page is JS-heavy</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>Hiring signal</h3>
+        </div>
+        <ul>
+          <li>• Firecrawl: DX, markdown, scrape/crawl/map</li>
+          <li>• Wynd: TypeScript, metrics, tests, ops</li>
+          <li>• Story: product hosted on my own PaaS</li>
+          <li>• Not a Firecrawl clone — a self-host wedge</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">SmartCrawl v3 · target architecture · AetherHost deploy</p>
+  </div>
+</body>
+</html>

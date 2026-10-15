@@ -1,63 +1,45 @@
-import express from 'express';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import { crawl } from './crawler.js';
-import { v4 as uuidv4 } from 'uuid';
-import path from 'path';
-import fs from 'fs-extra';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createApp } from './app.js';
+import { closeBrowser, renderWithPlaywright } from './browser.js';
+import { crawlSite, mapSite } from './crawl.js';
+import { JobStore } from './jobs.js';
+import { Metrics } from './metrics.js';
+import { scrape } from './scrape.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT) || 3000;
+const dbPath = process.env.JOBS_DB ?? path.join(__dirname, '../data/jobs.sqlite');
+const publicDir = process.env.PUBLIC_DIR ?? path.join(__dirname, '../ui/dist');
 
-const app = express();
-const PORT = 3000;
+const store = new JobStore(dbPath);
+const metrics = new Metrics();
+const scrapeDeps = { renderWithBrowser: renderWithPlaywright };
 
-app.use(cors());
-app.use(bodyParser.json());
-
-// In-memory job store
-const jobs: Record<string, { status: 'pending' | 'crawling' | 'completed' | 'failed', data?: any, error?: string }> = {};
-
-app.post('/crawl', async (req, res) => {
-    const { url } = req.body;
-    if (!url) {
-        return res.status(400).json({ error: 'URL is required' });
-    }
-
-    const jobId = uuidv4();
-    jobs[jobId] = { status: 'pending' };
-
-    // Start crawling in background
-    (async () => {
-        try {
-            jobs[jobId].status = 'crawling';
-            const outputFile = path.join(__dirname, `../output/crawl-${jobId}.json`);
-            const data = await crawl(url, outputFile);
-            jobs[jobId].status = 'completed';
-            jobs[jobId].data = data;
-        } catch (error: any) {
-            console.error(`Job ${jobId} failed:`, error);
-            jobs[jobId].status = 'failed';
-            jobs[jobId].error = error.message;
-        }
-    })();
-
-    res.json({ jobId });
+const app = createApp({
+  store,
+  publicDir,
+  metrics,
+  scrape: (request) => scrape(request, scrapeDeps),
+  map: (request) => mapSite(request, scrapeDeps),
+  crawl: (request) => crawlSite(request, scrapeDeps),
 });
 
-app.get('/status/:jobId', (req, res) => {
-    const { jobId } = req.params;
-    const job = jobs[jobId];
-
-    if (!job) {
-        return res.status(404).json({ error: 'Job not found' });
-    }
-
-    res.json(job);
+const server = app.listen(PORT, () => {
+  console.log(`SmartCrawl listening on http://localhost:${PORT}`);
 });
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT} (v2)`);
+async function shutdown(): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  await closeBrowser();
+  store.close();
+}
+
+process.on('SIGINT', () => {
+  void shutdown().finally(() => process.exit(0));
+});
+process.on('SIGTERM', () => {
+  void shutdown().finally(() => process.exit(0));
 });
