@@ -1,10 +1,11 @@
 import cors from 'cors';
-import express, { type Express } from 'express';
+import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CrawlResult, DiscoverRequest, MapResult } from './crawl.js';
 import { classifyError } from './errors.js';
 import type { JobStore } from './jobs.js';
+import { bearerToken, utcDay, type AuthKey, type KeyStore } from './keys.js';
 import { Metrics } from './metrics.js';
 import type { ScrapeRequest, ScrapeResult } from './types.js';
 
@@ -15,6 +16,8 @@ export interface AppDeps {
   crawl?: (request: DiscoverRequest) => Promise<CrawlResult>;
   metrics?: Metrics;
   publicDir?: string;
+  keys?: KeyStore;
+  adminToken?: string;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -22,6 +25,8 @@ export function createApp(deps: AppDeps): Express {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
+
+  const authOn = Boolean(deps.adminToken && deps.keys);
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -36,20 +41,74 @@ export function createApp(deps: AppDeps): Express {
     }
   });
 
-  app.get('/metrics', (_req, res) => {
+  const requireUser = (req: Request, res: Response, next: NextFunction) => {
+    if (!authOn || !deps.keys) return next();
+    const token = bearerToken(req.headers.authorization);
+    const key = token ? deps.keys.authenticate(token) : null;
+    if (!key) {
+      return res.status(401).json({ error: 'API key required', code: 'unauthorized' });
+    }
+    res.locals.apiKey = key;
+    next();
+  };
+
+  const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+    if (!deps.adminToken) {
+      return res.status(501).json({ error: 'Admin token is not configured' });
+    }
+    const token = bearerToken(req.headers.authorization);
+    if (token !== deps.adminToken) {
+      return res.status(401).json({ error: 'Admin token required', code: 'unauthorized' });
+    }
+    next();
+  };
+
+  const takeQuota = (req: Request, res: Response, next: NextFunction) => {
+    if (!authOn || !deps.keys) return next();
+    const key = res.locals.apiKey as AuthKey | undefined;
+    if (!key) return res.status(401).json({ error: 'API key required', code: 'unauthorized' });
+    const used = deps.keys.consume(key.id, utcDay(new Date()));
+    if (!used.ok) {
+      return res.status(429).json({ error: 'Daily quota exceeded', code: 'quota_exceeded', remaining: 0 });
+    }
+    res.locals.quotaRemaining = used.remaining;
+    next();
+  };
+
+  app.get('/metrics', requireUser, (_req, res) => {
     res.type('text/plain').send(metrics.renderPrometheus());
   });
 
-  app.get('/v1/stats', (_req, res) => {
+  app.get('/v1/stats', requireUser, (_req, res) => {
     res.json(metrics.snapshot());
   });
 
-  app.post('/v1/scrape', (req, res) => {
+  app.post('/v1/admin/keys', requireAdmin, (req, res) => {
+    if (!deps.keys) return res.status(501).json({ error: 'Key store is not configured' });
+    const body = req.body as { name?: unknown; dailyLimit?: unknown };
+    const name = typeof body.name === 'string' ? body.name : 'unnamed';
+    const dailyLimit = typeof body.dailyLimit === 'number' ? body.dailyLimit : 50;
+    const issued = deps.keys.createKey(name, dailyLimit);
+    res.status(201).json({
+      id: issued.id,
+      name: issued.name,
+      key: issued.key,
+      prefix: issued.prefix,
+      dailyLimit: issued.dailyLimit,
+    });
+  });
+
+  app.get('/v1/admin/keys', requireAdmin, (_req, res) => {
+    if (!deps.keys) return res.status(501).json({ error: 'Key store is not configured' });
+    res.json({ keys: deps.keys.listKeys() });
+  });
+
+  app.post('/v1/scrape', requireUser, takeQuota, (req, res) => {
     const request = parseScrapeBody(req.body);
     if (!request) {
       return res.status(400).json({ error: 'URL is required' });
     }
-    const job = enqueue(deps, metrics, 'scrape', request.url, request, async (jobId) => {
+    const job = enqueue(deps, metrics, 'scrape', request.url, request, keyOptions(res), async (jobId) => {
       deps.store.appendLog(jobId, { level: 'info', msg: `Fetching ${request.url}` });
       const data = await deps.scrape(request);
       deps.store.appendLog(jobId, {
@@ -66,12 +125,12 @@ export function createApp(deps: AppDeps): Express {
     res.json({ jobId: job.id });
   });
 
-  app.post('/v1/map', (req, res) => {
+  app.post('/v1/map', requireUser, takeQuota, (req, res) => {
     if (!deps.map) return res.status(501).json({ error: 'Map is not configured' });
     const request = parseDiscoverBody(req.body);
     if (!request) return res.status(400).json({ error: 'URL is required' });
     const mapper = deps.map;
-    const job = enqueue(deps, metrics, 'map', request.url, request, async (jobId) => {
+    const job = enqueue(deps, metrics, 'map', request.url, request, keyOptions(res), async (jobId) => {
       deps.store.appendLog(jobId, { level: 'info', msg: `Mapping ${request.url}` });
       const data = await mapper(request);
       deps.store.appendLog(jobId, { level: 'success', msg: `Discovered ${data.links.length} links` });
@@ -81,12 +140,12 @@ export function createApp(deps: AppDeps): Express {
     res.json({ jobId: job.id });
   });
 
-  app.post('/v1/crawl', (req, res) => {
+  app.post('/v1/crawl', requireUser, takeQuota, (req, res) => {
     if (!deps.crawl) return res.status(501).json({ error: 'Crawl is not configured' });
     const request = parseDiscoverBody(req.body);
     if (!request) return res.status(400).json({ error: 'URL is required' });
     const crawler = deps.crawl;
-    const job = enqueue(deps, metrics, 'crawl', request.url, request, async (jobId) => {
+    const job = enqueue(deps, metrics, 'crawl', request.url, request, keyOptions(res), async (jobId) => {
       deps.store.appendLog(jobId, { level: 'info', msg: `Crawling ${request.url} (limit ${request.limit ?? 5})` });
       const data = await crawler(request);
       deps.store.appendLog(jobId, { level: 'success', msg: `Crawled ${data.pages.length} pages` });
@@ -96,12 +155,12 @@ export function createApp(deps: AppDeps): Express {
     res.json({ jobId: job.id });
   });
 
-  app.post('/crawl', (req, res) => {
+  app.post('/crawl', requireUser, takeQuota, (req, res) => {
     const request = parseScrapeBody(req.body);
     if (!request) {
       return res.status(400).json({ error: 'URL is required' });
     }
-    const job = enqueue(deps, metrics, 'scrape', request.url, request, async (jobId) => {
+    const job = enqueue(deps, metrics, 'scrape', request.url, request, keyOptions(res), async (jobId) => {
       deps.store.appendLog(jobId, { level: 'info', msg: `Fetching ${request.url}` });
       const data = await deps.scrape(request);
       metrics.recordScrape({ ok: true, engine: data.metadata.engine, durationMs: data.timing.totalMs });
@@ -110,15 +169,19 @@ export function createApp(deps: AppDeps): Express {
     res.json({ jobId: job.id });
   });
 
-  app.get('/v1/jobs/:jobId', (req, res) => {
+  app.get('/v1/jobs/:jobId', requireUser, (req, res) => {
     const job = deps.store.getJob(req.params.jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job || !canReadJob(job.options, res.locals.apiKey as AuthKey | undefined, authOn)) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
     res.json(serializeJob(job));
   });
 
-  app.get('/status/:jobId', (req, res) => {
+  app.get('/status/:jobId', requireUser, (req, res) => {
     const job = deps.store.getJob(req.params.jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job || !canReadJob(job.options, res.locals.apiKey as AuthKey | undefined, authOn)) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
     res.json(serializeJob(job));
   });
 
@@ -142,6 +205,18 @@ export function createApp(deps: AppDeps): Express {
   }
 
   return app;
+}
+
+function keyOptions(res: Response): Record<string, unknown> {
+  const key = res.locals.apiKey as AuthKey | undefined;
+  return key ? { keyId: key.id } : {};
+}
+
+function canReadJob(options: Record<string, unknown>, key: AuthKey | undefined, authOn: boolean): boolean {
+  if (!authOn) return true;
+  const owner = typeof options.keyId === 'string' ? options.keyId : null;
+  if (!owner || !key) return false;
+  return owner === key.id;
 }
 
 function parseScrapeBody(body: unknown): ScrapeRequest | null {
@@ -185,9 +260,10 @@ function enqueue(
   kind: string,
   url: string,
   options: Record<string, unknown> | ScrapeRequest | DiscoverRequest,
+  extra: Record<string, unknown>,
   work: (jobId: string) => Promise<unknown>,
 ) {
-  const job = deps.store.createJob(url, { kind, ...(options as Record<string, unknown>) });
+  const job = deps.store.createJob(url, { kind, ...(options as Record<string, unknown>), ...extra });
   void runJob(deps, metrics, job.id, work);
   return job;
 }

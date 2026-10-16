@@ -22,6 +22,7 @@ export interface ScrapeOptions {
   js: boolean | 'auto';
   mode: JobMode;
   limit?: number;
+  apiKey?: string;
 }
 
 export interface OpsStats {
@@ -36,6 +37,12 @@ export interface OpsStats {
 }
 
 const apiBase = () => import.meta.env.VITE_API_URL ?? '';
+
+function authHeaders(apiKey?: string): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  return headers;
+}
 
 export const useSmartCrawl = () => {
   const [status, setStatus] = useState<'idle' | 'crawling' | 'success' | 'error' | 'timeout'>('idle');
@@ -68,7 +75,7 @@ export const useSmartCrawl = () => {
       const path = options.mode === 'map' ? '/v1/map' : options.mode === 'crawl' ? '/v1/crawl' : '/v1/scrape';
       const res = await fetch(`${apiBase()}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(options.apiKey),
         body: JSON.stringify({
           url,
           timeoutMs: options.timeoutMs,
@@ -94,7 +101,9 @@ export const useSmartCrawl = () => {
           return;
         }
         try {
-          const statusRes = await fetch(`${apiBase()}/v1/jobs/${jobId}`);
+          const statusRes = await fetch(`${apiBase()}/v1/jobs/${jobId}`, {
+            headers: authHeaders(options.apiKey),
+          });
           const result = await statusRes.json() as CrawlResult;
           if (result.logs) setLogs(result.logs);
           if (result.status === 'crawling' || result.status === 'pending') {
@@ -126,9 +135,9 @@ export const useSmartCrawl = () => {
   return { status, progress, startJob, data, logs, error };
 };
 
-export async function fetchOpsStats(): Promise<OpsStats | null> {
+export async function fetchOpsStats(apiKey?: string): Promise<OpsStats | null> {
   try {
-    const res = await fetch(`${apiBase()}/v1/stats`);
+    const res = await fetch(`${apiBase()}/v1/stats`, { headers: authHeaders(apiKey) });
     if (!res.ok) return null;
     return await res.json() as OpsStats;
   } catch {

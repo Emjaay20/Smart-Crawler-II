@@ -41,7 +41,7 @@ interface JobRow {
 }
 
 export class JobStore {
-  private readonly db: DatabaseSync;
+  readonly db: DatabaseSync;
 
   constructor(path: string) {
     if (path !== ':memory:') {

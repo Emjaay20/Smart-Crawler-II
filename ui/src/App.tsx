@@ -27,6 +27,7 @@ export default function CrawlerInterface() {
   const [engine, setEngine] = useState<EngineMode>('auto');
   const [mode, setMode] = useState<JobMode>('scrape');
   const [limit, setLimit] = useState(5);
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('smartcrawl.apiKey') ?? '');
   const [online, setOnline] = useState<boolean | null>(null);
   const [ops, setOps] = useState<OpsStats | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -47,11 +48,11 @@ export default function CrawlerInterface() {
     fetch(`${api}/health`)
       .then((res) => setOnline(res.ok))
       .catch(() => setOnline(false));
-    const tick = () => { void fetchOpsStats().then(setOps); };
+    const tick = () => { void fetchOpsStats(apiKey || undefined).then(setOps); };
     tick();
     const id = setInterval(tick, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [apiKey]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(JSON.stringify(data, null, 2));
@@ -125,7 +126,7 @@ export default function CrawlerInterface() {
                 </div>
               </div>
               <button
-                onClick={() => startJob(url, { timeoutMs, userAgent, js: jsFromEngine(engine), mode, limit })}
+                onClick={() => startJob(url, { timeoutMs, userAgent, js: jsFromEngine(engine), mode, limit, apiKey: apiKey || undefined })}
                 disabled={status === 'crawling' || !url}
                 className="bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 rounded-lg font-bold transition-all shadow-[0_0_15px_rgba(22,163,74,0.3)] flex items-center gap-2"
               >
@@ -152,6 +153,19 @@ export default function CrawlerInterface() {
                     exit={{ height: 0, opacity: 0 }}
                     className="overflow-hidden"
                   >
+                    <div className="space-y-1 pt-4">
+                      <label className="text-xs text-slate-500">API key</label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => {
+                          setApiKey(e.target.value);
+                          localStorage.setItem('smartcrawl.apiKey', e.target.value);
+                        }}
+                        placeholder="sc_live_…"
+                        className="w-full bg-slate-800/50 border border-slate-700 rounded p-1 text-xs outline-none"
+                      />
+                    </div>
                     <div className="grid grid-cols-3 gap-4 pt-4">
                       <div className="space-y-1">
                         <label className="text-xs text-slate-500">Mode</label>

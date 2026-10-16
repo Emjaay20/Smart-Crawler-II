@@ -49,6 +49,8 @@ npx tsx src/crawler.ts --url "https://example.com" --output results.json
 | POST | `/v1/map` | Discover same-origin URLs |
 | POST | `/v1/crawl` | Multi-page scrape (`limit` max 20) |
 | GET | `/v1/jobs/:id` | Job status, logs, result |
+| POST | `/v1/admin/keys` | Mint a user key (admin token) |
+| GET | `/v1/admin/keys` | List key prefixes and quota (admin) |
 | POST | `/crawl` | Legacy alias of `/v1/scrape` |
 | GET | `/status/:id` | Legacy alias of `/v1/jobs/:id` |
 
@@ -101,10 +103,31 @@ docker run --rm -p 3000:3000 -e PORT=3000 smart-crawler
 Env:
 
 - `PORT` — listen port
+- `HOST` — bind address (default `0.0.0.0`)
 - `JOBS_DB` — SQLite path (default `/app/data/jobs.sqlite`)
 - `PUBLIC_DIR` — playground build (default `/app/ui/dist`)
+- `SMARTCRAWL_ADMIN_TOKEN` — when set, scrape/map/crawl require a user API key
 
-Chromium is capped to one concurrent browser. Prefer HTTP pages; JS sites are slower and heavier.
+## Auth (multiple users)
+
+Until `SMARTCRAWL_ADMIN_TOKEN` is set, the API is open. Set it on the host, then mint keys. The raw key is shown **once**.
+
+```bash
+export SMARTCRAWL_ADMIN_TOKEN='a-long-random-secret'
+
+curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/admin/keys \
+  -H "authorization: Bearer $SMARTCRAWL_ADMIN_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"name":"alice","dailyLimit":50}'
+# { "key": "sc_live_...", "prefix": "sc_live_xxxx", "dailyLimit": 50 }
+
+curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/scrape \
+  -H "authorization: Bearer sc_live_..." \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com"}'
+```
+
+Each key has a daily job cap (default 50). Over quota returns `429`. Jobs are visible only to the key that created them. Paste the key in the playground under Configuration.
 
 ## How extraction works
 

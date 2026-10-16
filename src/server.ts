@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { closeBrowser, renderWithPlaywright } from './browser.js';
 import { crawlSite, mapSite } from './crawl.js';
+import { KeyStore } from './keys.js';
 import { JobStore } from './jobs.js';
 import { Metrics } from './metrics.js';
 import { scrape } from './scrape.js';
@@ -14,11 +15,14 @@ const dbPath = process.env.JOBS_DB ?? path.join(__dirname, '../data/jobs.sqlite'
 const publicDir = process.env.PUBLIC_DIR ?? path.join(__dirname, '../ui/dist');
 
 const store = new JobStore(dbPath);
+const keys = new KeyStore(store.db);
 const metrics = new Metrics();
 const scrapeDeps = { renderWithBrowser: renderWithPlaywright };
 
 const app = createApp({
   store,
+  keys,
+  adminToken: process.env.SMARTCRAWL_ADMIN_TOKEN,
   publicDir,
   metrics,
   scrape: (request) => scrape(request, scrapeDeps),
