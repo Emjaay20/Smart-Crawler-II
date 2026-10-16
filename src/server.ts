@@ -8,6 +8,7 @@ import { Metrics } from './metrics.js';
 import { scrape } from './scrape.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT) || 3000;
 const dbPath = process.env.JOBS_DB ?? path.join(__dirname, '../data/jobs.sqlite');
 const publicDir = process.env.PUBLIC_DIR ?? path.join(__dirname, '../ui/dist');
@@ -25,8 +26,8 @@ const app = createApp({
   crawl: (request) => crawlSite(request, scrapeDeps),
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`SmartCrawl listening on http://localhost:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`SmartCrawl listening on http://${HOST}:${PORT}`);
 });
 
 async function shutdown(): Promise<void> {
