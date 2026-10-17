@@ -2,39 +2,52 @@
 
 URL in. Clean markdown and structured JSON out.
 
-Fetch-first scraper: HTTP + Mozilla Readability by default, Playwright only when the page is a JS shell. Jobs persist in SQLite. One Docker image serves the API and the playground.
+Live: [https://smart-crawler.aetherhost.com.ng](https://smart-crawler.aetherhost.com.ng)  
+OpenAPI: [`openapi.yaml`](./openapi.yaml)
 
-## Quick start
+Fetch-first: HTTP + Mozilla Readability by default. Playwright only when the page is a JS shell (not installed on AetherHost’s 512MB tenant). Jobs persist in SQLite.
+
+## Use it in code
+
+```ts
+import { SmartCrawl } from 'smart-crawler';
+
+const sc = new SmartCrawl({
+  baseUrl: 'https://smart-crawler.aetherhost.com.ng',
+  apiKey: process.env.SMARTCRAWL_API_KEY, // required once auth is on
+});
+
+const doc = await sc.scrape('https://example.com');
+console.log(doc.markdown);
+```
+
+`sc.map(url)` and `sc.crawl(url, { limit: 5 })` wait for the job the same way.
+
+## Use it in a terminal
+
+```bash
+npm run build
+npx smartcrawl --base https://smart-crawler.aetherhost.com.ng health
+npx smartcrawl scrape https://example.com
+npx smartcrawl map https://example.com --limit 10
+npx smartcrawl crawl https://example.com --limit 3
+```
+
+Env: `SMARTCRAWL_URL`, `SMARTCRAWL_API_KEY`. Flags: `--base`, `--key`.
+
+## Quick start (local)
 
 ```bash
 npm install
-npx playwright install chromium
+npx playwright install chromium   # optional, local JS pages only
 npm --prefix ui install
 npm test
 npm run start:server
 ```
 
-In another terminal:
-
-```bash
-npm --prefix ui run dev
-```
-
-Open http://localhost:5173. The Vite dev server proxies `/v1`, `/health`, and `/ready` to the API on port 3000.
-
 ```bash
 curl -s http://localhost:3000/health
-curl -s -X POST http://localhost:3000/v1/scrape \
-  -H 'content-type: application/json' \
-  -d '{"url":"https://example.com"}'
-```
-
-Poll `GET /v1/jobs/:jobId` until `status` is `completed` or `failed`.
-
-CLI:
-
-```bash
-npx tsx src/crawler.ts --url "https://example.com" --output results.json
+# {"status":"ok"}
 ```
 
 ## API
@@ -119,10 +132,9 @@ curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/admin/keys \
   -H "authorization: Bearer $SMARTCRAWL_ADMIN_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"name":"alice","dailyLimit":50}'
-# { "key": "sc_live_...", "prefix": "sc_live_xxxx", "dailyLimit": 50 }
 
 curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/scrape \
-  -H "authorization: Bearer sc_live_..." \
+  -H "authorization: Bearer sc_live_YOUR_KEY" \
   -H 'content-type: application/json' \
   -d '{"url":"https://example.com"}'
 ```

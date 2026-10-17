@@ -3,7 +3,22 @@
   "version": "3.0.0",
   "description": "URL in. Clean markdown and structured JSON out.",
   "type": "module",
-  "main": "dist/server.js",
+  "main": "./dist/client.js",
+  "types": "./dist/client.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    }
+  },
+  "bin": {
+    "smartcrawl": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "openapi.yaml",
+    "README.md"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -13,8 +28,7 @@
     "start:server": "tsx src/server.ts",
     "build": "tsc -p tsconfig.json && npm --prefix ui run build"
   },
-  "keywords": ["scrape", "markdown", "playwright", "crawler"],
-  "author": "",
+  "keywords": ["scrape", "markdown", "crawler", "playwright"],
   "license": "ISC",
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
