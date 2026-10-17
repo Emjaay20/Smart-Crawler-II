@@ -219,3 +219,17 @@ export async function fetchRecentJobs(apiKey?: string, limit = 10): Promise<JobS
     return [];
   }
 }
+
+export async function mintDemoKey(name = 'playground-demo'): Promise<{ key: string; dailyLimit: number } | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/keys/demo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return null;
+    return await res.json() as { key: string; dailyLimit: number };
+  } catch {
+    return null;
+  }
+}

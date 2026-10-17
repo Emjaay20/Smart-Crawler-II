@@ -3,6 +3,7 @@ import {
   fetchMe,
   fetchOpsStats,
   fetchRecentJobs,
+  mintDemoKey,
   useSmartCrawl,
   type JobMode,
   type JobSummaryItem,
@@ -74,6 +75,7 @@ export default function CrawlerInterface() {
   const [limit, setLimit] = useState(5);
   const [excludePathsInput, setExcludePathsInput] = useState('');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('smartcrawl.apiKey') ?? '');
+  const [mintingKey, setMintingKey] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [ops, setOps] = useState<OpsStats | null>(null);
   const [me, setMe] = useState<MeInfo | null>(null);
@@ -81,12 +83,27 @@ export default function CrawlerInterface() {
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  const refreshTelemetry = useCallback(() => {
-    const key = apiKey.trim() || undefined;
+  const refreshTelemetry = useCallback((overrideKey?: string) => {
+    const key = (overrideKey ?? apiKey).trim() || undefined;
     void fetchOpsStats(key).then(setOps);
     void fetchMe(key).then(setMe);
     void fetchRecentJobs(key, 10).then(setRecentJobs);
   }, [apiKey]);
+
+  const handleMintDemoKey = async () => {
+    setMintingKey(true);
+    try {
+      const issued = await mintDemoKey('playground-demo');
+      if (issued?.key) {
+        setApiKey(issued.key);
+        localStorage.setItem('smartcrawl.apiKey', issued.key);
+        setShowConfig(true);
+        refreshTelemetry(issued.key);
+      }
+    } finally {
+      setMintingKey(false);
+    }
+  };
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -119,7 +136,7 @@ export default function CrawlerInterface() {
       .then((res) => setOnline(res.ok))
       .catch(() => setOnline(false));
     refreshTelemetry();
-    const id = setInterval(refreshTelemetry, 5000);
+    const id = setInterval(() => refreshTelemetry(), 5000);
     return () => clearInterval(id);
   }, [refreshTelemetry]);
 
@@ -141,7 +158,7 @@ export default function CrawlerInterface() {
         excludePaths,
         apiKey: apiKey.trim() || undefined,
       },
-      refreshTelemetry,
+      () => refreshTelemetry(),
     );
   };
 
@@ -208,7 +225,16 @@ export default function CrawlerInterface() {
               API key required
             </button>
           ) : (
-            <span className="text-slate-500">open mode</span>
+            <button
+              type="button"
+              onClick={handleMintDemoKey}
+              disabled={mintingKey}
+              className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 px-2.5 py-0.5 rounded transition-colors"
+              title="Mint a free 25/day sc_live_… key to test quota tracking"
+            >
+              <KeyRound size={12} className="text-emerald-400" />
+              {mintingKey ? 'Minting…' : 'Open Mode · Get Demo Key'}
+            </button>
           )}
 
           <div className="flex items-center gap-1.5 text-slate-400">
@@ -304,17 +330,29 @@ export default function CrawlerInterface() {
               {showConfig && (
                 <div className="space-y-3 pt-3 text-xs">
                   <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Bearer API Key (optional in open mode)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] text-slate-400">
+                        Bearer API Key {me?.authRequired ? '(required)' : '(optional in open mode)'}
+                      </label>
+                      {!me?.authRequired && (
+                        <button
+                          type="button"
+                          onClick={handleMintDemoKey}
+                          disabled={mintingKey}
+                          className="text-[11px] text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                        >
+                          {mintingKey ? 'Minting…' : '+ Generate Demo Key (25/day)'}
+                        </button>
+                      )}
+                    </div>
                     <input
-                      type="password"
+                      type="text"
                       value={apiKey}
                       onChange={(e) => {
                         setApiKey(e.target.value);
                         localStorage.setItem('smartcrawl.apiKey', e.target.value);
                       }}
-                      placeholder="sc_live_…"
+                      placeholder="sc_live_… (leave blank in open mode)"
                       className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs outline-none focus:border-emerald-500"
                     />
                   </div>

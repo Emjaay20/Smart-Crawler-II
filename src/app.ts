@@ -113,9 +113,10 @@ export function createApp(deps: AppDeps): Express {
   };
 
   const consumeQuotaOrReject = (res: Response): boolean => {
-    if (!authOn || !deps.keys) return true;
+    if (!deps.keys) return true;
     const key = res.locals.apiKey as AuthKey | undefined;
     if (!key) {
+      if (!authOn) return true;
       res.status(401).json({ error: 'API key required', code: 'unauthorized' });
       return false;
     }
@@ -145,6 +146,26 @@ export function createApp(deps: AppDeps): Express {
       authenticated: Boolean(usage),
       authRequired: authOn,
       key: usage,
+    });
+  });
+
+  app.post('/v1/keys/demo', (req, res) => {
+    if (!deps.keys) return res.status(501).json({ error: 'Key store is not configured' });
+    if (authOn && process.env.SMARTCRAWL_ALLOW_DEMO_KEYS !== 'true') {
+      return res.status(403).json({
+        error: 'Self-serve demo keys are disabled when admin auth is enforced; use POST /v1/admin/keys',
+        code: 'forbidden',
+      });
+    }
+    const body = (req.body ?? {}) as { name?: unknown };
+    const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 32) : 'playground-demo';
+    const issued = deps.keys.createKey(name, 25);
+    res.status(201).json({
+      id: issued.id,
+      name: issued.name,
+      key: issued.key,
+      prefix: issued.prefix,
+      dailyLimit: issued.dailyLimit,
     });
   });
 
