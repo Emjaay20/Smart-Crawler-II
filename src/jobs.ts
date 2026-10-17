@@ -86,6 +86,49 @@ export class JobStore {
     return row ? this.fromRow(row) : null;
   }
 
+  listJobs(opts: { keyId?: string; authOn?: boolean; limit?: number } = {}): Job[] {
+    const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
+    const rows = this.db
+      .prepare('SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?')
+      .all(limit * 3) as unknown as JobRow[];
+
+    const jobs: Job[] = [];
+    for (const row of rows) {
+      const job = this.fromRow(row);
+      if (opts.authOn) {
+        const owner = typeof job.options.keyId === 'string' ? job.options.keyId : null;
+        if (!owner || !opts.keyId || owner !== opts.keyId) {
+          continue;
+        }
+      }
+      jobs.push(job);
+      if (jobs.length >= limit) break;
+    }
+    return jobs;
+  }
+
+  recoverStaleJobs(reason = 'Server restarted before job completed'): number {
+    const stale = this.db
+      .prepare("SELECT * FROM jobs WHERE status IN ('pending', 'crawling')")
+      .all() as unknown as JobRow[];
+    if (!stale.length) return 0;
+
+    const now = Date.now();
+    const iso = new Date(now).toISOString();
+    const errorJson = JSON.stringify({ code: 'unknown', message: reason } satisfies JobError);
+    const update = this.db.prepare(`
+      UPDATE jobs SET status = 'failed', error_json = ?, logs_json = ?, updated_at = ? WHERE id = ?
+    `);
+
+    for (const row of stale) {
+      const logs = JSON.parse(row.logs_json) as JobLog[];
+      logs.push({ time: iso, level: 'error', msg: reason });
+      update.run(errorJson, JSON.stringify(logs), now, row.id);
+    }
+
+    return stale.length;
+  }
+
   setStatus(id: string, status: JobStatus): void {
     this.db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?').run(status, Date.now(), id);
   }

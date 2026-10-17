@@ -21,13 +21,16 @@ const doc = await sc.scrape('https://example.com');
 console.log(doc.markdown);
 ```
 
-`sc.map(url)` and `sc.crawl(url, { limit: 5 })` wait for the job the same way.
+`sc.map(url)` and `sc.crawl(url, { limit: 5 })` wait for the job the same way. `sc.me()` inspects current key quota and `sc.listJobs()` lists recent jobs.
 
 ## Use it in a terminal
 
 ```bash
 npm run build
 npx smartcrawl --base https://smart-crawler.aetherhost.com.ng health
+npx smartcrawl me
+npx smartcrawl jobs
+npx smartcrawl report
 npx smartcrawl scrape https://example.com
 npx smartcrawl map https://example.com --limit 10
 npx smartcrawl crawl https://example.com --limit 3
@@ -56,14 +59,19 @@ curl -s http://localhost:3000/health
 |---|---|---|
 | GET | `/health` | Liveness |
 | GET | `/ready` | SQLite is readable |
-| GET | `/metrics` | Prometheus counters |
+| GET | `/metrics` | Prometheus counters (`scrape_jobs_total`, `scrape_errors_total`, `worker_active_jobs`, `worker_queue_depth`, p95 latency) |
 | GET | `/v1/stats` | JSON snapshot of the same counters |
+| GET | `/v1/report` | Operational health digest (`healthy` / `degraded` / `critical`) |
+| GET | `/v1/me` | Auth mode and current API key quota (`dailyLimit`, `usedToday`, `remaining`) |
 | POST | `/v1/scrape` | Enqueue a scrape job |
-| POST | `/v1/map` | Discover same-origin URLs |
-| POST | `/v1/crawl` | Multi-page scrape (`limit` max 20) |
+| POST | `/v1/map` | Discover same-origin URLs (seed page + `/sitemap.xml`) |
+| POST | `/v1/crawl` | Multi-page BFS scrape (`limit` max 20) |
+| GET | `/v1/jobs` | List recent jobs (`?limit=20`) |
 | GET | `/v1/jobs/:id` | Job status, logs, result |
 | POST | `/v1/admin/keys` | Mint a user key (admin token) |
 | GET | `/v1/admin/keys` | List key prefixes and quota (admin) |
+| DELETE | `/v1/admin/keys/:id` | Revoke a user key (admin) |
+| POST | `/v1/admin/report` | Generate operational digest and post to Slack (admin) |
 | POST | `/crawl` | Legacy alias of `/v1/scrape` |
 | GET | `/status/:id` | Legacy alias of `/v1/jobs/:id` |
 
@@ -120,10 +128,16 @@ Env:
 - `JOBS_DB` — SQLite path (default `/app/data/jobs.sqlite`)
 - `PUBLIC_DIR` — playground build (default `/app/ui/dist`)
 - `SMARTCRAWL_ADMIN_TOKEN` — when set, scrape/map/crawl require a user API key
+- `SMARTCRAWL_ADMIN_TOKEN_FILE` — optional file path for the admin token (defaults to `/app/data/admin.token` if present)
+- `SMARTCRAWL_SLACK_WEBHOOK_URL` — optional Slack incoming webhook for automatic failure-spike alerts and operational digests
+- `SMARTCRAWL_ALERT_FAILURE_THRESHOLD` — consecutive failures before firing a Slack alert (default `3`)
+- `SMARTCRAWL_ALERT_COOLDOWN_MS` — alert cooldown window in ms to prevent Slack notification storms (default `300000`)
+- `MAX_CONCURRENT_JOBS` — max concurrent worker jobs (default `4`)
+- `SMARTCRAWL_ALLOW_PRIVATE_NETWORKS` — set to `true` only for local test suites scraping `127.0.0.1`
 
 ## Auth (multiple users)
 
-Until `SMARTCRAWL_ADMIN_TOKEN` is set, the API is open. Set it on the host, then mint keys. The raw key is shown **once**.
+Until `SMARTCRAWL_ADMIN_TOKEN` (or `/app/data/admin.token`) is set, the API is open. Set it on the host, then mint keys. The raw key is shown **once**.
 
 ```bash
 export SMARTCRAWL_ADMIN_TOKEN='a-long-random-secret'
@@ -139,14 +153,14 @@ curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/scrape \
   -d '{"url":"https://example.com"}'
 ```
 
-Each key has a daily job cap (default 50). Over quota returns `429`. Jobs are visible only to the key that created them. Paste the key in the playground under Configuration.
+Each key has a daily job cap (default 50) and returns `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers. Over quota returns `429`. Jobs are visible only to the key that created them. Paste the key in the playground under Configuration.
 
 ## How extraction works
 
-1. Validate http(s) URL, canonicalize, check `robots.txt`.
-2. Fetch HTML. If it looks like a real document, run Readability and convert to markdown.
+1. Validate `http(s)` URL, reject SSRF targets (cloud metadata `169.254.169.254`, loopback, RFC1918, IPv6 private/link-local), canonicalize, and check `robots.txt`.
+2. Fetch HTML (rejecting binary MIME types and payloads over 5MB) and re-validate the final post-redirect URL against SSRF rules. If it looks like a real document, run Readability and convert to markdown.
 3. If the body is a JS shell and `js` is `auto`, render with Playwright (images/fonts/CSS blocked), then extract.
-4. Deduplicate links by canonical URL. Persist the job and logs in SQLite.
+4. Deduplicate links by canonical URL (and merge `/sitemap.xml` during `map`). Persist the job and live per-page progress logs in SQLite, automatically recovering interrupted jobs on server restart.
 
 ## Tests
 
@@ -154,6 +168,6 @@ Each key has a daily job cap (default 50). Over quota returns `429`. Jobs are vi
 npm test
 ```
 
-Fixtures cover article chrome-stripping, HN-style link dedup, SPA shells, robots, job durability, and the HTTP API.
+Fixtures cover article chrome-stripping, HN-style link dedup, SPA shells, robots, SSRF/redirect guards, sitemap discovery, job durability & stale-job recovery, API key lifecycle, and the HTTP API.
 
 Requires Node 22+ (`node:sqlite`).

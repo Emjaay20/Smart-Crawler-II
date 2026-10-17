@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { crawlSite, mapSite } from '../src/crawl.js';
 
-function pages(map: Record<string, { links?: string[]; title?: string; status?: number }>): typeof fetch {
+function pages(
+  map: Record<string, { links?: string[]; title?: string; status?: number }>,
+  sitemapUrls: string[] = [],
+): typeof fetch {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith('/robots.txt')) {
       return new Response('User-agent: *\nAllow: /\n', { status: 200 });
+    }
+    if (url.endsWith('/sitemap.xml')) {
+      if (!sitemapUrls.length) return new Response('missing', { status: 404 });
+      const locs = sitemapUrls.map((u) => `<url><loc>${u}</loc></url>`).join('');
+      return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset>${locs}</urlset>`, {
+        status: 200,
+        headers: { 'content-type': 'application/xml' },
+      });
     }
     const parsed = new URL(url);
     const key = parsed.pathname === '/' ? parsed.origin + '/' : parsed.origin + parsed.pathname.replace(/\/$/, '');
@@ -49,19 +60,39 @@ describe('mapSite', () => {
     );
     expect(result.links).toHaveLength(1);
   });
+
+  it('merges same-origin URLs discovered from /sitemap.xml', async () => {
+    const withSitemap = pages(
+      { 'https://docs.example/': { title: 'Home', links: ['https://docs.example/guides'] } },
+      ['https://docs.example/changelog', 'https://docs.example/secret', 'https://other.example/ignore'],
+    );
+    const result = await mapSite(
+      { url: 'https://docs.example/', limit: 10, excludePaths: ['/secret'] },
+      { fetch: withSitemap },
+    );
+    expect(result.links).toEqual([
+      'https://docs.example/guides',
+      'https://docs.example/changelog',
+    ]);
+  });
 });
 
 describe('crawlSite', () => {
-  it('walks same-origin pages, respects exclude and limit', async () => {
+  it('walks same-origin pages, respects exclude and limit, and fires onPage hooks', async () => {
+    const progress: string[] = [];
     const result = await crawlSite(
       { url: 'https://docs.example/', limit: 3, excludePaths: ['/secret'] },
-      { fetch: site },
+      {
+        fetch: site,
+        onPage: (page, idx, max) => progress.push(`${idx}/${max}:${page.url}`),
+      },
     );
     const urls = result.pages.map((page) => page.url);
     expect(urls).toContain('https://docs.example/');
     expect(urls).toHaveLength(3);
     expect(urls).not.toContain('https://docs.example/secret');
     expect(result.pages.every((page) => page.markdown && page.markdown.length > 0)).toBe(true);
+    expect(progress).toHaveLength(3);
   });
 
   it('only follows includePaths when set', async () => {

@@ -7,6 +7,8 @@ export interface JobLog {
 }
 
 export interface CrawlResult {
+  id?: string;
+  url?: string;
   status: 'completed' | 'failed' | 'pending' | 'crawling';
   data?: unknown;
   error?: string;
@@ -22,6 +24,8 @@ export interface ScrapeOptions {
   js: boolean | 'auto';
   mode: JobMode;
   limit?: number;
+  includePaths?: string[];
+  excludePaths?: string[];
   apiKey?: string;
 }
 
@@ -36,6 +40,30 @@ export interface OpsStats {
   crawlPages: number;
 }
 
+export interface MeInfo {
+  authenticated: boolean;
+  authRequired: boolean;
+  key: {
+    id: string;
+    name: string;
+    prefix: string;
+    dailyLimit: number;
+    usedToday: number;
+    remaining: number;
+  } | null;
+}
+
+export interface JobSummaryItem {
+  id: string;
+  status: 'pending' | 'crawling' | 'completed' | 'failed';
+  url: string;
+  kind: string;
+  error?: string;
+  errorCode?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 const apiBase = () => import.meta.env.VITE_API_URL ?? '';
 
 function authHeaders(apiKey?: string): Record<string, string> {
@@ -46,7 +74,7 @@ function authHeaders(apiKey?: string): Record<string, string> {
 
 export const useSmartCrawl = () => {
   const [status, setStatus] = useState<'idle' | 'crawling' | 'success' | 'error' | 'timeout'>('idle');
-  const [progress, setProgress] = useState(0);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [data, setData] = useState<unknown>(null);
   const [logs, setLogs] = useState<JobLog[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -61,15 +89,40 @@ export const useSmartCrawl = () => {
     }
   };
 
-  const startJob = async (url: string, options: ScrapeOptions) => {
+  const loadJob = async (jobId: string, apiKey?: string) => {
+    clearPoll();
+    setActiveJobId(jobId);
+    try {
+      const res = await fetch(`${apiBase()}/v1/jobs/${jobId}`, {
+        headers: authHeaders(apiKey),
+      });
+      if (!res.ok) return;
+      const result = await res.json() as CrawlResult;
+      setLogs(result.logs ?? []);
+      if (result.status === 'completed') {
+        setData(result.data);
+        setError(null);
+        setStatus('success');
+      } else if (result.status === 'failed') {
+        setData(null);
+        setError(result.error || 'Job failed');
+        setStatus('error');
+      } else {
+        setStatus('crawling');
+      }
+    } catch {
+      // ignore transient error
+    }
+  };
+
+  const startJob = async (url: string, options: ScrapeOptions, onDone?: () => void) => {
     clearPoll();
     setStatus('crawling');
-    setProgress(15);
     setData(null);
     setError(null);
     setLogs([{ time: new Date().toISOString(), level: 'info', msg: `Queued ${options.mode} ${url}` }]);
     attempts.current = 0;
-    const maxAttempts = Math.max(30, Math.ceil(options.timeoutMs / 2000) + 5);
+    const maxAttempts = Math.max(30, Math.ceil(options.timeoutMs / 1000) + 10);
 
     try {
       const path = options.mode === 'map' ? '/v1/map' : options.mode === 'crawl' ? '/v1/crawl' : '/v1/scrape';
@@ -82,6 +135,8 @@ export const useSmartCrawl = () => {
           userAgent: options.userAgent,
           js: options.js,
           limit: options.limit,
+          includePaths: options.includePaths?.length ? options.includePaths : undefined,
+          excludePaths: options.excludePaths?.length ? options.excludePaths : undefined,
           formats: ['markdown', 'links', 'metadata', 'html'],
           onlyMainContent: true,
         }),
@@ -91,6 +146,7 @@ export const useSmartCrawl = () => {
         throw new Error((body as { error?: string }).error || 'Failed to start job');
       }
       const { jobId } = await res.json() as { jobId: string };
+      setActiveJobId(jobId);
 
       pollTimer.current = setInterval(async () => {
         attempts.current += 1;
@@ -98,6 +154,7 @@ export const useSmartCrawl = () => {
           clearPoll();
           setStatus('timeout');
           setError('Timed out waiting for job');
+          onDone?.();
           return;
         }
         try {
@@ -107,32 +164,29 @@ export const useSmartCrawl = () => {
           const result = await statusRes.json() as CrawlResult;
           if (result.logs) setLogs(result.logs);
           if (result.status === 'crawling' || result.status === 'pending') {
-            setProgress(result.status === 'pending' ? 20 : 55);
             return;
           }
           clearPoll();
           if (result.status === 'completed') {
-            setProgress(100);
             setData(result.data);
             setStatus('success');
           } else {
             setStatus('error');
             setError(result.error || 'Job failed');
-            setProgress(0);
           }
+          onDone?.();
         } catch (err) {
           console.error('Polling error', err);
         }
-      }, 1000);
+      }, 600);
     } catch (err) {
-      console.error(err);
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Failed to start job');
-      setProgress(0);
+      onDone?.();
     }
   };
 
-  return { status, progress, startJob, data, logs, error };
+  return { status, activeJobId, startJob, loadJob, data, logs, error };
 };
 
 export async function fetchOpsStats(apiKey?: string): Promise<OpsStats | null> {
@@ -142,5 +196,26 @@ export async function fetchOpsStats(apiKey?: string): Promise<OpsStats | null> {
     return await res.json() as OpsStats;
   } catch {
     return null;
+  }
+}
+
+export async function fetchMe(apiKey?: string): Promise<MeInfo | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/me`, { headers: authHeaders(apiKey) });
+    if (!res.ok) return null;
+    return await res.json() as MeInfo;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchRecentJobs(apiKey?: string, limit = 10): Promise<JobSummaryItem[]> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/jobs?limit=${limit}`, { headers: authHeaders(apiKey) });
+    if (!res.ok) return [];
+    const body = await res.json() as { jobs?: JobSummaryItem[] };
+    return body.jobs ?? [];
+  } catch {
+    return [];
   }
 }

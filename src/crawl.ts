@@ -35,27 +35,42 @@ export interface CrawlResult {
   pages: CrawledPage[];
 }
 
-export async function mapSite(request: DiscoverRequest, deps: ScrapeDeps = {}): Promise<MapResult> {
-  const sourceUrl = canonicalizeUrl(request.url);
-  const scraped = await scrape({
-    url: sourceUrl,
-    formats: ['links'],
-    onlyMainContent: false,
-    js: false,
-    timeoutMs: request.timeoutMs,
-    userAgent: request.userAgent,
-  }, deps);
-
-  const limit = clamp(request.limit ?? DEFAULT_MAP_LIMIT, 1, MAX_MAP_LIMIT);
-  const links = (scraped.links ?? [])
-    .filter((href) => sameOrigin(sourceUrl, href))
-    .filter((href) => isAllowedPath(new URL(href).pathname, request.includePaths, request.excludePaths))
-    .slice(0, limit);
-
-  return { success: true, sourceUrl, links };
+export interface CrawlDeps extends ScrapeDeps {
+  onPage?: (page: CrawledPage, index: number, limit: number) => void;
 }
 
-export async function crawlSite(request: DiscoverRequest, deps: ScrapeDeps = {}): Promise<CrawlResult> {
+export async function mapSite(request: DiscoverRequest, deps: ScrapeDeps = {}): Promise<MapResult> {
+  const sourceUrl = canonicalizeUrl(request.url);
+  const fetchImpl = deps.fetch ?? fetch;
+  const [scraped, sitemapLinks] = await Promise.all([
+    scrape({
+      url: sourceUrl,
+      formats: ['links'],
+      onlyMainContent: false,
+      js: request.js ?? false,
+      timeoutMs: request.timeoutMs,
+      userAgent: request.userAgent,
+    }, deps),
+    fetchSitemapLinks(sourceUrl, fetchImpl, request.userAgent, request.timeoutMs),
+  ]);
+
+  const limit = clamp(request.limit ?? DEFAULT_MAP_LIMIT, 1, MAX_MAP_LIMIT);
+  const merged = new Set<string>();
+  for (const href of [...(scraped.links ?? []), ...sitemapLinks]) {
+    if (!sameOrigin(sourceUrl, href)) continue;
+    try {
+      if (!isAllowedPath(new URL(href).pathname, request.includePaths, request.excludePaths)) continue;
+      merged.add(href);
+    } catch {
+      continue;
+    }
+    if (merged.size >= limit) break;
+  }
+
+  return { success: true, sourceUrl, links: Array.from(merged) };
+}
+
+export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}): Promise<CrawlResult> {
   const seed = canonicalizeUrl(request.url);
   const limit = clamp(request.limit ?? DEFAULT_CRAWL_LIMIT, 1, MAX_CRAWL_LIMIT);
   const queue: string[] = [seed];
@@ -79,12 +94,15 @@ export async function crawlSite(request: DiscoverRequest, deps: ScrapeDeps = {})
         timeoutMs: request.timeoutMs,
         userAgent: request.userAgent,
       }, deps);
-      pages.push({
+      const page: CrawledPage = {
         url: scraped.metadata.finalUrl || url,
         title: scraped.metadata.title,
         markdown: scraped.markdown,
         statusCode: scraped.metadata.statusCode,
-      });
+      };
+      pages.push(page);
+      deps.onPage?.(page, pages.length, limit);
+
       for (const href of scraped.links ?? []) {
         if (!sameOrigin(seed, href)) continue;
         if (!isAllowedPath(new URL(href).pathname, request.includePaths, request.excludePaths)) continue;
@@ -97,6 +115,37 @@ export async function crawlSite(request: DiscoverRequest, deps: ScrapeDeps = {})
   }
 
   return { success: true, pages };
+}
+
+async function fetchSitemapLinks(
+  sourceUrl: string,
+  fetchImpl: typeof fetch,
+  userAgent?: string,
+  timeoutMs = 5000,
+): Promise<string[]> {
+  try {
+    const sitemapUrl = new URL('/sitemap.xml', sourceUrl).href;
+    const res = await fetchImpl(sitemapUrl, {
+      headers: userAgent ? { 'user-agent': userAgent } : undefined,
+      signal: AbortSignal.timeout(Math.min(3000, timeoutMs)),
+    });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const matches = xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi);
+    const urls: string[] = [];
+    for (const match of matches) {
+      const raw = match[1]?.trim();
+      if (!raw) continue;
+      try {
+        urls.push(canonicalizeUrl(raw, sourceUrl));
+      } catch {
+        // ignore invalid or non-http sitemap entries
+      }
+    }
+    return urls;
+  } catch {
+    return [];
+  }
 }
 
 function sameOrigin(left: string, right: string): boolean {

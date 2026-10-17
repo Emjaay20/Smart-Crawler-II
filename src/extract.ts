@@ -26,8 +26,8 @@ export function extractFromHtml(html: string, baseUrl: string, options: ExtractO
   let contentTitle = title;
 
   if (options.onlyMainContent) {
-    const cloned = new JSDOM(html, { url: baseUrl });
-    const article = new Readability(cloned.window.document).parse();
+    const clonedDoc = document.cloneNode(true) as Document;
+    const article = new Readability(clonedDoc).parse();
     if (article?.content) {
       contentHtml = article.content;
       contentTitle = article.title || contentTitle;
@@ -53,18 +53,24 @@ export function extractFromHtml(html: string, baseUrl: string, options: ExtractO
     result.html = contentHtml;
   }
   if (options.formats.includes('links')) {
-    result.links = collectLinks(contentHtml, baseUrl);
+    result.links = options.onlyMainContent
+      ? collectLinksFromHtml(contentHtml, baseUrl)
+      : collectLinksFromRoot(document, baseUrl);
   }
 
   return result;
 }
 
-function collectLinks(html: string, baseUrl: string): string[] {
+function collectLinksFromHtml(html: string, baseUrl: string): string[] {
   const dom = new JSDOM(html, { url: baseUrl });
+  return collectLinksFromRoot(dom.window.document, baseUrl);
+}
+
+function collectLinksFromRoot(root: ParentNode, baseUrl: string): string[] {
   const seen = new Set<string>();
   const links: string[] = [];
 
-  for (const anchor of dom.window.document.querySelectorAll('a[href]')) {
+  for (const anchor of root.querySelectorAll('a[href]')) {
     const href = anchor.getAttribute('href');
     if (!href) continue;
     try {
@@ -73,7 +79,7 @@ function collectLinks(html: string, baseUrl: string): string[] {
       seen.add(canonical);
       links.push(canonical);
     } catch {
-      // skip javascript: and other non-http hrefs
+      // skip javascript:, mailto:, private/blocked hosts, and other non-http hrefs
     }
   }
 

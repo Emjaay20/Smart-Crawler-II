@@ -52,6 +52,10 @@ describe('SmartCrawl client', () => {
     const result = await sc.scrape('https://example.com');
     expect(result.markdown).toBe('# Hello');
     expect(result.metadata.engine).toBe('http');
+
+    const listed = await sc.listJobs(5);
+    expect(listed.jobs).toHaveLength(1);
+    expect(listed.jobs[0]?.url).toBe('https://example.com');
   });
 
   it('throws SmartCrawlError on 401', async () => {
@@ -73,7 +77,7 @@ describe('SmartCrawl client', () => {
     } satisfies Partial<SmartCrawlError>);
   });
 
-  it('sends the API key and maps a site', async () => {
+  it('sends the API key, maps a site, and inspects quota via me()', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
     const keys = new KeyStore(store.db);
@@ -91,5 +95,10 @@ describe('SmartCrawl client', () => {
     const sc = new SmartCrawl({ baseUrl: started.base, apiKey: issued.key });
     const mapped = await sc.map('https://example.com');
     expect(mapped.links).toEqual(['https://example.com/a']);
+
+    const me = await sc.me();
+    expect(me.authenticated).toBe(true);
+    expect(me.key?.usedToday).toBe(1);
+    expect(me.key?.remaining).toBe(9);
   });
 });

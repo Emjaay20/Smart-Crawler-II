@@ -3,10 +3,44 @@
 @tailwind utilities;
 
 :root {
-  font-family: monospace;
+  color-scheme: dark;
+  accent-color: #10b981;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --scrollbar-thumb: #334155;
+  --scrollbar-track: #090d16;
 }
 
 body {
-  background-color: #0f172a; /* slate-900 */
-  color: #e2e8f0; /* slate-200 */
+  background-color: #090d16;
+  color: #e2e8f0;
+  margin: 0;
+}
+
+::selection {
+  background-color: rgba(16, 185, 129, 0.25);
+  color: #f8fafc;
+}
+
+input:user-invalid {
+  border-color: #ef4444;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+@supports not (scrollbar-color: auto) {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
 }

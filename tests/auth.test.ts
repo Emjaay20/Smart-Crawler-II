@@ -67,7 +67,7 @@ describe('api keys', () => {
     expect(scrape.status).toBe(401);
   });
 
-  it('lets an admin mint a key that can scrape until the daily cap', async () => {
+  it('lets an admin mint a key, exposes quota headers & /v1/me, and revokes keys via DELETE', async () => {
     const { app } = boot();
     const started = await listen(app);
     server = started.server;
@@ -78,8 +78,16 @@ describe('api keys', () => {
       body: JSON.stringify({ name: 'alice', dailyLimit: 1 }),
     });
     expect(minted.status).toBe(201);
-    const body = await minted.json() as { key: string };
+    const body = await minted.json() as { id: string; key: string };
     expect(body.key.startsWith('sc_live_')).toBe(true);
+
+    // Invalid/SSRF URL should return 400 BEFORE consuming daily quota
+    const bad = await fetch(`${started.base}/v1/scrape`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${body.key}` },
+      body: JSON.stringify({ url: 'http://169.254.169.254/latest/meta-data/' }),
+    });
+    expect(bad.status).toBe(400);
 
     const first = await fetch(`${started.base}/v1/scrape`, {
       method: 'POST',
@@ -87,6 +95,17 @@ describe('api keys', () => {
       body: JSON.stringify({ url: 'https://example.com' }),
     });
     expect(first.status).toBe(200);
+    expect(first.headers.get('x-ratelimit-limit')).toBe('1');
+    expect(first.headers.get('x-ratelimit-remaining')).toBe('0');
+
+    const meRes = await fetch(`${started.base}/v1/me`, {
+      headers: { authorization: `Bearer ${body.key}` },
+    });
+    expect(meRes.status).toBe(200);
+    const me = await meRes.json() as { authenticated: boolean; key: { usedToday: number; remaining: number } };
+    expect(me.authenticated).toBe(true);
+    expect(me.key.usedToday).toBe(1);
+    expect(me.key.remaining).toBe(0);
 
     const second = await fetch(`${started.base}/v1/scrape`, {
       method: 'POST',
@@ -94,6 +113,17 @@ describe('api keys', () => {
       body: JSON.stringify({ url: 'https://example.com' }),
     });
     expect(second.status).toBe(429);
+
+    const revoked = await fetch(`${started.base}/v1/admin/keys/${body.id}`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer admin-secret' },
+    });
+    expect(revoked.status).toBe(200);
+
+    const afterRevoke = await fetch(`${started.base}/v1/me`, {
+      headers: { authorization: `Bearer ${body.key}` },
+    });
+    expect(afterRevoke.status).toBe(401);
   });
 
   it('rejects a bad admin token', async () => {

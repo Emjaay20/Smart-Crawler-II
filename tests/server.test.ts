@@ -7,6 +7,7 @@ import type { Server } from 'node:http';
 import { JobStore } from '../src/jobs.js';
 import { createApp } from '../src/app.js';
 import type { ScrapeResult } from '../src/types.js';
+
 const playgroundDirs: string[] = [];
 afterEach(() => {
   while (playgroundDirs.length) {
@@ -14,6 +15,7 @@ afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   }
 });
+
 function tempPublicDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'smartcrawl-ui-'));
   playgroundDirs.push(dir);
@@ -69,7 +71,7 @@ describe('http api', () => {
     expect(await ready.json()).toEqual({ status: 'ready' });
   });
 
-  it('rejects scrape requests without a url', async () => {
+  it('rejects scrape requests without a url or with SSRF targets', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
     const app = createApp({ store, scrape: async () => sample });
@@ -82,6 +84,13 @@ describe('http api', () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(400);
+
+    const ssrf = await fetch(`${started.base}/v1/scrape`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'http://127.0.0.1:3000/health' }),
+    });
+    expect(ssrf.status).toBe(400);
   });
 
   it('runs a scrape job and returns durable status with real logs', async () => {
@@ -118,6 +127,9 @@ describe('http api', () => {
 
     const legacy = await (await fetch(`${started.base}/status/${jobId}`)).json() as Record<string, unknown>;
     expect(legacy.status).toBe('completed');
+
+    const jobsList = await (await fetch(`${started.base}/v1/jobs?limit=5`)).json() as { jobs: Array<{ id: string }> };
+    expect(jobsList.jobs.some((j) => j.id === jobId)).toBe(true);
   });
 
   it('serves the playground without breaking Express 5 routing', async () => {
@@ -184,5 +196,73 @@ describe('http api', () => {
     }
     expect(payload.status).toBe('completed');
     expect(payload.data).toEqual({ success: true, sourceUrl: 'https://example.com', links: ['https://example.com/a'] });
+  });
+
+  it('bounds concurrent job execution and records per-page crawl logs', async () => {
+    const store = new JobStore(':memory:');
+    stores.push(store);
+    let inFlight = 0;
+    let maxObserved = 0;
+
+    const app = createApp({
+      store,
+      maxConcurrentJobs: 2,
+      scrape: async () => {
+        inFlight += 1;
+        maxObserved = Math.max(maxObserved, inFlight);
+        await new Promise((r) => setTimeout(r, 40));
+        inFlight -= 1;
+        return sample;
+      },
+      crawl: async (_req, hooks) => {
+        hooks?.onPage?.({ url: 'https://example.com/1', title: 'One', markdown: '# 1', statusCode: 200 }, 1, 2);
+        hooks?.onPage?.({ url: 'https://example.com/2', title: 'Two', markdown: '# 2', statusCode: 200 }, 2, 2);
+        return {
+          success: true as const,
+          pages: [
+            { url: 'https://example.com/1', title: 'One', markdown: '# 1', statusCode: 200 },
+            { url: 'https://example.com/2', title: 'Two', markdown: '# 2', statusCode: 200 },
+          ],
+        };
+      },
+    });
+    const started = await listen(app);
+    server = started.server;
+
+    const ids = await Promise.all(
+      [1, 2, 3, 4].map(async (n) => {
+        const res = await fetch(`${started.base}/v1/scrape`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ url: `https://example.com/p/${n}` }),
+        });
+        const body = await res.json() as { jobId: string };
+        return body.jobId;
+      }),
+    );
+
+    const crawlRes = await fetch(`${started.base}/v1/crawl`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com', limit: 2 }),
+    });
+    const { jobId: crawlJobId } = await crawlRes.json() as { jobId: string };
+
+    for (let i = 0; i < 40; i++) {
+      const done = await Promise.all(
+        [...ids, crawlJobId].map(async (id) => {
+          const j = await (await fetch(`${started.base}/v1/jobs/${id}`)).json() as { status: string };
+          return j.status === 'completed';
+        }),
+      );
+      if (done.every(Boolean)) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    expect(maxObserved).toBeLessThanOrEqual(2);
+    const crawlJob = await (await fetch(`${started.base}/v1/jobs/${crawlJobId}`)).json() as {
+      logs: Array<{ msg: string }>;
+    };
+    expect(crawlJob.logs.some((l) => l.msg.includes('[1/2] Scraped https://example.com/1'))).toBe(true);
   });
 });

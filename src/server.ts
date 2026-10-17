@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
@@ -15,24 +16,42 @@ const dbPath = process.env.JOBS_DB ?? path.join(__dirname, '../data/jobs.sqlite'
 const publicDir = process.env.PUBLIC_DIR ?? path.join(__dirname, '../ui/dist');
 
 const store = new JobStore(dbPath);
+store.recoverStaleJobs();
+
 const keys = new KeyStore(store.db);
 const metrics = new Metrics();
 const scrapeDeps = { renderWithBrowser: renderWithPlaywright };
+const adminToken = resolveAdminToken(dbPath);
 
 const app = createApp({
   store,
   keys,
-  adminToken: process.env.SMARTCRAWL_ADMIN_TOKEN,
+  adminToken,
   publicDir,
   metrics,
   scrape: (request) => scrape(request, scrapeDeps),
   map: (request) => mapSite(request, scrapeDeps),
-  crawl: (request) => crawlSite(request, scrapeDeps),
+  crawl: (request, hooks) => crawlSite(request, { ...scrapeDeps, ...hooks }),
 });
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`SmartCrawl listening on http://${HOST}:${PORT}`);
 });
+
+function resolveAdminToken(sqlitePath: string): string | undefined {
+  const fromEnv = process.env.SMARTCRAWL_ADMIN_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  const tokenFile = process.env.SMARTCRAWL_ADMIN_TOKEN_FILE ?? path.join(path.dirname(sqlitePath), 'admin.token');
+  try {
+    if (fs.existsSync(tokenFile)) {
+      const value = fs.readFileSync(tokenFile, 'utf8').trim();
+      if (value) return value;
+    }
+  } catch {
+    // ignore unreadable token file
+  }
+  return undefined;
+}
 
 async function shutdown(): Promise<void> {
   await new Promise<void>((resolve, reject) => {

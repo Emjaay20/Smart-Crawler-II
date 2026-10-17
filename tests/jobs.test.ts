@@ -59,18 +59,37 @@ describe('JobStore', () => {
     store.close();
   });
 
-  it('survives process restart via the sqlite file', () => {
+  it('survives process restart via the sqlite file and recovers stale in-flight jobs', () => {
     const path = tempDbPath();
     const first = new JobStore(path);
     const created = first.createJob('https://example.com/a', { userAgent: 'test' });
+    first.setStatus(created.id, 'crawling');
     first.appendLog(created.id, { level: 'info', msg: 'started' });
     first.close();
 
     const second = new JobStore(path);
+    const recovered = second.recoverStaleJobs('Worker restarted');
+    expect(recovered).toBe(1);
+
     const loaded = second.getJob(created.id);
     expect(loaded?.url).toBe('https://example.com/a');
-    expect(loaded?.options).toEqual({ userAgent: 'test' });
-    expect(loaded?.logs[0]?.msg).toBe('started');
+    expect(loaded?.status).toBe('failed');
+    expect(loaded?.error?.message).toBe('Worker restarted');
+    expect(loaded?.logs).toHaveLength(2);
     second.close();
+  });
+
+  it('lists recent jobs scoped by keyId when authOn is true', () => {
+    const store = new JobStore(':memory:');
+    store.createJob('https://example.com/1', { keyId: 'key-a', kind: 'scrape' });
+    store.createJob('https://example.com/2', { keyId: 'key-b', kind: 'map' });
+
+    const keyAJobs = store.listJobs({ keyId: 'key-a', authOn: true, limit: 10 });
+    expect(keyAJobs).toHaveLength(1);
+    expect(keyAJobs[0]?.url).toBe('https://example.com/1');
+
+    const allPublic = store.listJobs({ authOn: false, limit: 10 });
+    expect(allPublic).toHaveLength(2);
+    store.close();
   });
 });

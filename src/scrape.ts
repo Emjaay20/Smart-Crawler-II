@@ -34,6 +34,17 @@ export interface ResolvedScrapeRequest {
   userAgent: string;
 }
 
+const MAX_HTML_BYTES = 5 * 1024 * 1024;
+const BLOCKED_CONTENT_PREFIXES = [
+  'image/',
+  'video/',
+  'audio/',
+  'application/pdf',
+  'application/octet-stream',
+  'application/zip',
+  'application/gzip',
+];
+
 export async function scrape(request: ScrapeRequest, deps: ScrapeDeps = {}): Promise<ScrapeResult> {
   const started = (deps.now ?? Date.now)();
   const fetchImpl = deps.fetch ?? fetch;
@@ -107,6 +118,11 @@ async function scrapeWithHttp(
   });
   const ttfbMs = now() - t0;
 
+  const finalUrl = res.url || request.url;
+  if (finalUrl !== request.url) {
+    validateHttpUrl(finalUrl);
+  }
+
   if (res.status >= 400 && res.status < 500) {
     throw new ScrapeError('http_4xx', `HTTP ${res.status} fetching ${request.url}`);
   }
@@ -114,12 +130,25 @@ async function scrapeWithHttp(
     throw new ScrapeError('http_5xx', `HTTP ${res.status} fetching ${request.url}`);
   }
 
+  const contentType = res.headers.get('content-type')?.toLowerCase() ?? '';
+  if (BLOCKED_CONTENT_PREFIXES.some((prefix) => contentType.startsWith(prefix))) {
+    throw new ScrapeError('invalid_url', `Unsupported content-type for HTML extraction: ${contentType}`);
+  }
+
+  const contentLength = Number(res.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_HTML_BYTES) {
+    throw new ScrapeError('invalid_url', 'Response body exceeds 5MB limit');
+  }
+
   const html = await res.text();
-  const extracted = extractFromHtml(html, res.url || request.url, {
+  if (Buffer.byteLength(html, 'utf8') > MAX_HTML_BYTES) {
+    throw new ScrapeError('invalid_url', 'Response body exceeds 5MB limit');
+  }
+
+  const extracted = extractFromHtml(html, finalUrl, {
     onlyMainContent: request.onlyMainContent,
     formats: request.formats,
   });
-  const finalUrl = res.url || request.url;
 
   return {
     engine: 'http',
@@ -139,7 +168,11 @@ async function scrapeWithBrowser(request: ResolvedScrapeRequest, deps: ScrapeDep
     throw new ScrapeError('js_required', 'JavaScript rendering required but no browser engine is configured');
   }
   const rendered = await deps.renderWithBrowser(request.url, request);
-  const extracted = extractFromHtml(rendered.html, rendered.finalUrl || request.url, {
+  const finalUrl = rendered.finalUrl || request.url;
+  if (finalUrl !== request.url) {
+    validateHttpUrl(finalUrl);
+  }
+  const extracted = extractFromHtml(rendered.html, finalUrl, {
     onlyMainContent: request.onlyMainContent,
     formats: request.formats,
   });
@@ -149,7 +182,7 @@ async function scrapeWithBrowser(request: ResolvedScrapeRequest, deps: ScrapeDep
     extracted,
     looksLikeSpa: extracted.looksLikeSpa,
     statusCode: rendered.statusCode,
-    finalUrl: rendered.finalUrl,
+    finalUrl,
     redirectChain: rendered.redirectChain,
     ttfbMs: rendered.ttfbMs,
     charset: 'utf-8',

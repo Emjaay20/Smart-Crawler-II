@@ -1,0 +1,70 @@
+name: CI & Container Smoke
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    name: Typecheck, Unit Tests & UI Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install UI dependencies
+        run: npm --prefix ui ci
+
+      - name: Run Vitest suite
+        run: npm test
+
+      - name: Build backend & UI
+        run: npm run build
+
+  docker-smoke:
+    name: Docker Build & Production Smoke Test
+    runs-on: ubuntu-latest
+    needs: test-and-build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t smart-crawler:ci .
+
+      - name: Boot container & verify health, readiness, and operational report
+        run: |
+          docker run -d --name smartcrawl-ci \
+            -p 3000:3000 \
+            -e PORT=3000 \
+            -e SMARTCRAWL_ADMIN_TOKEN=ci-admin-token \
+            smart-crawler:ci
+
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://127.0.0.1:3000/health | grep '"status":"ok"'
+          curl -fsS http://127.0.0.1:3000/ready | grep '"status":"ready"'
+          curl -fsS -X POST http://127.0.0.1:3000/v1/admin/report \
+            -H "Authorization: Bearer ci-admin-token" \
+            -H "Content-Type: application/json" | grep '"status":"healthy"'
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f smartcrawl-ci || true

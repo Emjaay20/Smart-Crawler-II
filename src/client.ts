@@ -1,4 +1,6 @@
+import type { OperationalReport } from './alerts.js';
 import type { CrawlResult, DiscoverRequest, MapResult } from './crawl.js';
+import type { KeyUsage } from './keys.js';
 import type { ScrapeRequest, ScrapeResult } from './types.js';
 
 export interface SmartCrawlOptions {
@@ -16,6 +18,25 @@ export interface JobView {
   error?: string;
   errorCode?: string;
   logs?: Array<{ time: string; level: string; msg: string }>;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface JobSummary {
+  id: string;
+  status: 'pending' | 'crawling' | 'completed' | 'failed';
+  url: string;
+  kind: string;
+  error?: string;
+  errorCode?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MeResponse {
+  authenticated: boolean;
+  authRequired: boolean;
+  key: KeyUsage | null;
 }
 
 export class SmartCrawlError extends Error {
@@ -44,6 +65,18 @@ export class SmartCrawl {
     return this.request('GET', '/health');
   }
 
+  async me(): Promise<MeResponse> {
+    return this.request('GET', '/v1/me');
+  }
+
+  async report(): Promise<OperationalReport> {
+    return this.request('GET', '/v1/report');
+  }
+
+  async sendSlackReport(webhookUrl?: string): Promise<{ sent: boolean; report: OperationalReport }> {
+    return this.request('POST', '/v1/admin/report', webhookUrl ? { webhookUrl } : {});
+  }
+
   async scrape(url: string, request: Omit<ScrapeRequest, 'url'> = {}): Promise<ScrapeResult> {
     const job = await this.start('/v1/scrape', { ...request, url });
     return this.waitForData<ScrapeResult>(job.jobId);
@@ -61,6 +94,10 @@ export class SmartCrawl {
 
   async job(jobId: string): Promise<JobView> {
     return this.request('GET', `/v1/jobs/${jobId}`);
+  }
+
+  async listJobs(limit = 20): Promise<{ jobs: JobSummary[] }> {
+    return this.request('GET', `/v1/jobs?limit=${encodeURIComponent(String(limit))}`);
   }
 
   async waitForJob(jobId: string, timeoutMs = 60_000): Promise<JobView> {

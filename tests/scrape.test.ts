@@ -9,7 +9,7 @@ const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const articleHtml = readFileSync(join(fixtures, 'article.html'), 'utf8');
 const spaHtml = readFileSync(join(fixtures, 'spa-shell.html'), 'utf8');
 
-function htmlFetch(map: Record<string, { status?: number; body: string; contentType?: string }>): typeof fetch {
+function htmlFetch(map: Record<string, { status?: number; body: string; contentType?: string; headers?: Record<string, string> }>): typeof fetch {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith('/robots.txt')) {
@@ -19,7 +19,10 @@ function htmlFetch(map: Record<string, { status?: number; body: string; contentT
     if (!hit) return new Response('not found', { status: 404 });
     return new Response(hit.body, {
       status: hit.status ?? 200,
-      headers: { 'content-type': hit.contentType ?? 'text/html; charset=utf-8' },
+      headers: {
+        'content-type': hit.contentType ?? 'text/html; charset=utf-8',
+        ...(hit.headers ?? {}),
+      },
     });
   }) as typeof fetch;
 }
@@ -92,5 +95,44 @@ describe('scrape', () => {
         { fetch: htmlFetch({}) },
       ),
     ).rejects.toMatchObject({ code: 'http_4xx' });
+  });
+
+  it('rejects binary content-types and responses exceeding 5MB', async () => {
+    await expect(
+      scrape(
+        { url: 'https://food.example/file.pdf' },
+        { fetch: htmlFetch({ 'https://food.example/file.pdf': { body: '%PDF-1.5', contentType: 'application/pdf' } }) },
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_url' });
+
+    await expect(
+      scrape(
+        { url: 'https://food.example/huge' },
+        {
+          fetch: htmlFetch({
+            'https://food.example/huge': {
+              body: '<p>hi</p>',
+              headers: { 'content-length': String(10 * 1024 * 1024) },
+            },
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_url' });
+  });
+
+  it('blocks SSRF redirects to metadata or loopback hosts', async () => {
+    const redirectingFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/robots.txt')) {
+        return new Response('User-agent: *\nAllow: /\n', { status: 200 });
+      }
+      const res = new Response('<p>secret</p>', { status: 200, headers: { 'content-type': 'text/html' } });
+      Object.defineProperty(res, 'url', { value: 'http://169.254.169.254/latest/meta-data/' });
+      return res;
+    }) as typeof fetch;
+
+    await expect(
+      scrape({ url: 'https://food.example/redirect' }, { fetch: redirectingFetch }),
+    ).rejects.toMatchObject({ code: 'invalid_url' });
   });
 });

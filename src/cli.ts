@@ -19,6 +19,14 @@ program
   });
 
 program
+  .command('me')
+  .description('Inspect current API key and remaining daily quota')
+  .action(async () => {
+    const sc = client(program);
+    print(await sc.me());
+  });
+
+program
   .command('scrape')
   .description('Scrape one URL to markdown')
   .argument('<url>')
@@ -49,12 +57,34 @@ program
   });
 
 program
+  .command('jobs')
+  .description('List recent jobs')
+  .option('--limit <n>', 'max jobs', '20')
+  .action(async (opts: { limit: string }) => {
+    const sc = client(program);
+    print(await sc.listJobs(Number(opts.limit)));
+  });
+
+program
   .command('job')
   .description('Get a job by id')
   .argument('<id>')
   .action(async (id: string) => {
     const sc = client(program);
     print(await sc.job(id));
+  });
+
+program
+  .command('report')
+  .description('Generate operational health digest (and optionally post to Slack via admin token)')
+  .option('--slack [webhookUrl]', 'Post operational digest to Slack')
+  .action(async (opts: { slack?: boolean | string }) => {
+    const sc = client(program);
+    if (opts.slack) {
+      print(await sc.sendSlackReport(typeof opts.slack === 'string' ? opts.slack : undefined));
+    } else {
+      print(await sc.report());
+    }
   });
 
 program.parseAsync(process.argv).catch((err) => {

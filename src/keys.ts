@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
 export interface IssuedKey {
@@ -24,6 +24,11 @@ export interface AuthKey {
   name: string;
   prefix: string;
   dailyLimit: number;
+}
+
+export interface KeyUsage extends AuthKey {
+  usedToday: number;
+  remaining: number;
 }
 
 const DEFAULT_DAILY_LIMIT = 50;
@@ -69,26 +74,52 @@ export class KeyStore {
     return { id: row.id, name: row.name, prefix: row.prefix, dailyLimit: row.dailyLimit };
   }
 
-  consume(id: string, utcDay: string): { ok: boolean; remaining: number } {
+  getUsage(id: string, day = utcDay(new Date())): KeyUsage | null {
+    const row = this.db.prepare(`
+      SELECT id, name, prefix, daily_limit AS dailyLimit, used_today AS usedToday, used_on AS usedOn, revoked
+      FROM api_keys WHERE id = ?
+    `).get(id) as {
+      id: string;
+      name: string;
+      prefix: string;
+      dailyLimit: number;
+      usedToday: number;
+      usedOn: string | null;
+      revoked: number;
+    } | undefined;
+    if (!row || row.revoked) return null;
+    const usedToday = row.usedOn === day ? row.usedToday : 0;
+    return {
+      id: row.id,
+      name: row.name,
+      prefix: row.prefix,
+      dailyLimit: row.dailyLimit,
+      usedToday,
+      remaining: Math.max(0, row.dailyLimit - usedToday),
+    };
+  }
+
+  consume(id: string, day: string): { ok: boolean; remaining: number } {
     const row = this.db.prepare(`
       SELECT daily_limit AS dailyLimit, used_today AS usedToday, used_on AS usedOn, revoked
       FROM api_keys WHERE id = ?
     `).get(id) as { dailyLimit: number; usedToday: number; usedOn: string | null; revoked: number } | undefined;
     if (!row || row.revoked) return { ok: false, remaining: 0 };
 
-    const usedToday = row.usedOn === utcDay ? row.usedToday : 0;
+    const usedToday = row.usedOn === day ? row.usedToday : 0;
     if (usedToday >= row.dailyLimit) {
       return { ok: false, remaining: 0 };
     }
     const next = usedToday + 1;
     this.db.prepare(`
       UPDATE api_keys SET used_today = ?, used_on = ? WHERE id = ?
-    `).run(next, utcDay, id);
+    `).run(next, day, id);
     return { ok: true, remaining: row.dailyLimit - next };
   }
 
-  revoke(id: string): void {
-    this.db.prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(id);
+  revoke(id: string): boolean {
+    const res = this.db.prepare('UPDATE api_keys SET revoked = 1 WHERE id = ?').run(id);
+    return Number(res.changes) > 0;
   }
 
   listKeys(): PublicKey[] {
@@ -131,4 +162,12 @@ export function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const match = /^Bearer\s+(\S+)/i.exec(header.trim());
   return match?.[1] ?? null;
+}
+
+export function safeEqualToken(actual: string | null | undefined, expected: string | undefined): boolean {
+  if (!actual || !expected) return false;
+  const a = Buffer.from(actual);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
