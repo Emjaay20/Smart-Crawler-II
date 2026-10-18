@@ -10,6 +10,8 @@ import {
   type MeInfo,
   type OpsStats,
 } from './hooks/useSmartCrawl';
+import { DocsView } from './components/DocsView';
+import { Footer } from './components/Footer';
 import {
   Terminal,
   Settings,
@@ -24,7 +26,7 @@ import {
   FileText,
   Clock,
   KeyRound,
-  ArrowUpRight,
+  BookOpen,
 } from 'lucide-react';
 
 const CHROME_UA =
@@ -64,6 +66,9 @@ function jsFromEngine(mode: EngineMode): boolean | 'auto' {
 
 export default function CrawlerInterface() {
   const { status, activeJobId, startJob, loadJob, data, logs, error } = useSmartCrawl();
+  const [mainView, setMainView] = useState<'workbench' | 'docs'>(() => {
+    return typeof window !== 'undefined' && window.location.hash === '#docs' ? 'docs' : 'workbench';
+  });
   const [url, setUrl] = useState('https://example.com');
   const [activeTab, setActiveTab] = useState<'markdown' | 'links' | 'data' | 'console'>('console');
   const [selectedPageIdx, setSelectedPageIdx] = useState(0);
@@ -82,6 +87,23 @@ export default function CrawlerInterface() {
   const [recentJobs, setRecentJobs] = useState<JobSummaryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      setMainView(window.location.hash === '#docs' ? 'docs' : 'workbench');
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const switchView = (v: 'workbench' | 'docs') => {
+    setMainView(v);
+    if (v === 'docs') {
+      window.location.hash = '#docs';
+    } else {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  };
 
   const refreshTelemetry = useCallback((overrideKey?: string) => {
     const key = (overrideKey ?? apiKey).trim() || undefined;
@@ -188,28 +210,52 @@ export default function CrawlerInterface() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090d16] text-slate-200 flex flex-col font-mono">
+    <div className="min-h-dvh bg-[#090d16] text-slate-200 flex flex-col font-mono justify-between">
       {/* Top Bar */}
-      <header className="border-b border-slate-800/90 bg-slate-950/90 px-6 py-3 flex items-center justify-between select-none">
+      <header className="border-b border-slate-800/90 bg-slate-950/90 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 select-none sticky top-0 z-40 backdrop-blur">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-bold tracking-tight text-white flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => switchView('workbench')}
+            className="flex items-center gap-2 text-sm font-bold tracking-tight text-white hover:opacity-90 transition-opacity"
+          >
             <Terminal size={15} className="text-emerald-400" />
-            SmartCrawl
-          </span>
-          <span className="text-[11px] bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-slate-400">
+            <span>SmartCrawl</span>
+          </button>
+          <span className="text-[11px] bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono">
             v3.0
           </span>
-          <a
-            href="/openapi.yaml"
-            target="_blank"
-            rel="noreferrer"
-            className="text-[11px] text-slate-400 hover:text-emerald-400 flex items-center gap-0.5 transition-colors ml-2"
-          >
-            OpenAPI <ArrowUpRight size={11} />
-          </a>
+
+          {/* View Switcher Pills */}
+          <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-0.5 rounded text-xs ml-1 sm:ml-3">
+            <button
+              type="button"
+              onClick={() => switchView('workbench')}
+              className={`px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
+                mainView === 'workbench'
+                  ? 'bg-emerald-600 text-white font-medium shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Terminal size={12} />
+              <span>Workbench</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('docs')}
+              className={`px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
+                mainView === 'docs'
+                  ? 'bg-emerald-600 text-white font-medium shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <BookOpen size={12} />
+              <span>Architecture & Trade-offs</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-3 text-xs">
           {me?.key ? (
             <span className="flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-0.5 rounded">
               <KeyRound size={12} />
@@ -252,8 +298,13 @@ export default function CrawlerInterface() {
         </div>
       </header>
 
-      {/* Main Workbench Grid */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
+      {/* Main Content Area */}
+      {mainView === 'docs' ? (
+        <main className="flex-1 w-full">
+          <DocsView />
+        </main>
+      ) : (
+        <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
         {/* Left Column: Controls + Recent Jobs */}
         <section className="lg:col-span-4 flex flex-col gap-4">
           <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 space-y-4">
@@ -700,6 +751,10 @@ export default function CrawlerInterface() {
           </footer>
         </section>
       </main>
+      )}
+
+      {/* Global Responsive Footer */}
+      <Footer ops={ops} online={online} onOpenDocs={() => switchView('docs')} />
     </div>
   );
 }
