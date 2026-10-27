@@ -7,7 +7,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/smartcrawl
+  # Container registry paths are case-sensitive and must be lowercase.
+  IMAGE_NAME: emjaay20/smartcrawl
 
 jobs:
   publish:
