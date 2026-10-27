@@ -7,6 +7,7 @@ export interface IssuedKey {
   key: string;
   prefix: string;
   dailyLimit: number;
+  userId?: string;
 }
 
 export interface PublicKey {
@@ -24,6 +25,7 @@ export interface AuthKey {
   name: string;
   prefix: string;
   dailyLimit: number;
+  userId?: string;
 }
 
 export interface KeyUsage extends AuthKey {
@@ -41,6 +43,7 @@ export class KeyStore {
         name TEXT NOT NULL,
         prefix TEXT NOT NULL,
         hash TEXT NOT NULL UNIQUE,
+        user_id TEXT,
         daily_limit INTEGER NOT NULL,
         used_today INTEGER NOT NULL DEFAULT 0,
         used_on TEXT,
@@ -48,9 +51,13 @@ export class KeyStore {
         created_at INTEGER NOT NULL
       )
     `);
+    const columns = this.db.prepare('PRAGMA table_info(api_keys)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'user_id')) {
+      this.db.exec('ALTER TABLE api_keys ADD COLUMN user_id TEXT');
+    }
   }
 
-  createKey(name: string, dailyLimit = DEFAULT_DAILY_LIMIT): IssuedKey {
+  createKey(name: string, dailyLimit = DEFAULT_DAILY_LIMIT, userId?: string): IssuedKey {
     const id = randomUUID();
     const secret = randomBytes(24).toString('base64url');
     const key = `sc_live_${secret}`;
@@ -58,20 +65,20 @@ export class KeyStore {
     const hash = hashKey(key);
     const limit = Math.max(1, Math.floor(dailyLimit));
     this.db.prepare(`
-      INSERT INTO api_keys (id, name, prefix, hash, daily_limit, used_today, used_on, revoked, created_at)
-      VALUES (?, ?, ?, ?, ?, 0, NULL, 0, ?)
-    `).run(id, name.trim() || 'unnamed', prefix, hash, limit, Date.now());
-    return { id, name: name.trim() || 'unnamed', key, prefix, dailyLimit: limit };
+      INSERT INTO api_keys (id, name, prefix, hash, user_id, daily_limit, used_today, used_on, revoked, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 0, ?)
+    `).run(id, name.trim() || 'unnamed', prefix, hash, userId ?? null, limit, Date.now());
+    return { id, name: name.trim() || 'unnamed', key, prefix, dailyLimit: limit, userId };
   }
 
   authenticate(rawKey: string): AuthKey | null {
     const hash = hashKey(rawKey.trim());
     const row = this.db.prepare(`
-      SELECT id, name, prefix, daily_limit AS dailyLimit, revoked
+      SELECT id, name, prefix, user_id AS userId, daily_limit AS dailyLimit, revoked
       FROM api_keys WHERE hash = ?
-    `).get(hash) as { id: string; name: string; prefix: string; dailyLimit: number; revoked: number } | undefined;
+    `).get(hash) as { id: string; name: string; prefix: string; userId: string | null; dailyLimit: number; revoked: number } | undefined;
     if (!row || row.revoked) return null;
-    return { id: row.id, name: row.name, prefix: row.prefix, dailyLimit: row.dailyLimit };
+    return { id: row.id, name: row.name, prefix: row.prefix, dailyLimit: row.dailyLimit, userId: row.userId ?? undefined };
   }
 
   getUsage(id: string, day = utcDay(new Date())): KeyUsage | null {
@@ -128,6 +135,43 @@ export class KeyStore {
              used_on AS usedOn, revoked, created_at AS createdAt
       FROM api_keys ORDER BY created_at DESC
     `).all() as Array<{
+      id: string;
+      name: string;
+      prefix: string;
+      dailyLimit: number;
+      usedToday: number;
+      usedOn: string | null;
+      revoked: number;
+      createdAt: number;
+    }>;
+    const today = utcDay(new Date());
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      prefix: row.prefix,
+      dailyLimit: row.dailyLimit,
+      usedToday: row.usedOn === today ? row.usedToday : 0,
+      revoked: Boolean(row.revoked),
+      createdAt: row.createdAt,
+    }));
+  }
+
+  listKeysForUser(userId: string): PublicKey[] {
+    return this.listKeysWhere('user_id = ?', userId);
+  }
+
+  keyBelongsToUser(id: string, userId: string): boolean {
+    const row = this.db.prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ? AND revoked = 0').get(id, userId);
+    return Boolean(row);
+  }
+
+  private listKeysWhere(where = '1 = 1', value?: string): PublicKey[] {
+    const statement = `
+      SELECT id, name, prefix, daily_limit AS dailyLimit, used_today AS usedToday,
+             used_on AS usedOn, revoked, created_at AS createdAt
+      FROM api_keys WHERE ${where} ORDER BY created_at DESC
+    `;
+    const rows = (value === undefined ? this.db.prepare(statement).all() : this.db.prepare(statement).all(value)) as Array<{
       id: string;
       name: string;
       prefix: string;

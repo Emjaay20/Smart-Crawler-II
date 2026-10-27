@@ -28,13 +28,19 @@
     "start:server": "tsx src/server.ts",
     "build": "tsc -p tsconfig.json && npm --prefix ui run build"
   },
-  "keywords": ["scrape", "markdown", "crawler", "playwright"],
+  "keywords": [
+    "scrape",
+    "markdown",
+    "crawler",
+    "playwright"
+  ],
   "license": "ISC",
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "commander": "^14.0.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "jose": "^6.2.13",
     "jsdom": "^29.1.1",
     "playwright": "^1.57.0",
     "robots-parser": "^3.0.1",

@@ -134,6 +134,11 @@ Env:
 - `SMARTCRAWL_ALERT_COOLDOWN_MS` — alert cooldown window in ms to prevent Slack notification storms (default `300000`)
 - `MAX_CONCURRENT_JOBS` — max concurrent worker jobs (default `4`)
 - `SMARTCRAWL_ALLOW_PRIVATE_NETWORKS` — set to `true` only for local test suites scraping `127.0.0.1`
+- `SMARTCRAWL_OIDC_ISSUER` — Odudu tenant issuer, for example `https://auth.example.com/tenants/smartcrawl`
+- `SMARTCRAWL_OIDC_CLIENT_ID` — SmartCrawl's registered OIDC client ID
+- `SMARTCRAWL_OIDC_CLIENT_SECRET` — optional client secret for the server-side web client
+- `SMARTCRAWL_OIDC_REDIRECT_URI` — exact callback URL, for example `https://smart-crawler.example.com/auth/callback`
+- `SMARTCRAWL_FREE_DAILY_LIMIT` — daily job allowance for a newly created account key (default `25`)
 
 ## Auth (multiple users)
 
@@ -154,6 +159,34 @@ curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/scrape \
 ```
 
 Each key has a daily job cap (default 50) and returns `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers. Over quota returns `429`. Jobs are visible only to the key that created them. Paste the key in the playground under Configuration.
+
+## Account sign-up with Odudu
+
+SmartCrawl uses [Odudu](https://github.com/wizzywit/odudu) as an optional OpenID Connect identity provider for dashboard accounts. Odudu handles sign-up and sign-in; SmartCrawl keeps product data such as plans, jobs, quotas, and API keys.
+
+Run Odudu separately with PostgreSQL and HTTPS, then create a `smartcrawl` tenant and register SmartCrawl as a server-side web client. Its redirect URI must exactly match `SMARTCRAWL_OIDC_REDIRECT_URI`.
+
+```bash
+export SMARTCRAWL_OIDC_ISSUER='https://auth.example.com/tenants/smartcrawl'
+export SMARTCRAWL_OIDC_CLIENT_ID='smartcrawl-web'
+export SMARTCRAWL_OIDC_CLIENT_SECRET='set-this-for-a-confidential-client'
+export SMARTCRAWL_OIDC_REDIRECT_URI='https://smart-crawler.example.com/auth/callback'
+export SMARTCRAWL_FREE_DAILY_LIMIT=25
+```
+
+After configuration, the playground displays **Start free**. The browser uses OIDC authorization code flow with PKCE; after returning to SmartCrawl, the user can create a personal `sc_live_…` API key. The key is for their application or server, while the OIDC session is only for the dashboard.
+
+Account endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/auth/login` | Start the Odudu sign-in flow |
+| GET | `/auth/callback` | OIDC callback (configured redirect URI) |
+| POST | `/auth/logout` | End the SmartCrawl browser session |
+| GET | `/auth/me` | Current dashboard session |
+| GET | `/v1/account` | Account and its API-key summaries |
+| POST | `/v1/account/keys` | Create a personal API key (shown once) |
+| DELETE | `/v1/account/keys/:id` | Revoke one of the user's keys |
 
 ## How extraction works
 

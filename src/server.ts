@@ -2,11 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { AccountStore } from './accounts.js';
 import { closeBrowser, renderWithPlaywright } from './browser.js';
 import { crawlSite, mapSite } from './crawl.js';
 import { KeyStore } from './keys.js';
 import { JobStore } from './jobs.js';
 import { Metrics } from './metrics.js';
+import { OidcClient } from './oidc.js';
 import { scrape } from './scrape.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,6 +21,7 @@ const store = new JobStore(dbPath);
 store.recoverStaleJobs();
 
 const keys = new KeyStore(store.db);
+const accounts = new AccountStore(store.db);
 const metrics = new Metrics();
 const scrapeDeps = { renderWithBrowser: renderWithPlaywright };
 const adminToken = resolveAdminToken(dbPath);
@@ -26,6 +29,8 @@ const adminToken = resolveAdminToken(dbPath);
 const app = createApp({
   store,
   keys,
+  accounts,
+  oidc: OidcClient.fromEnv(),
   adminToken,
   publicDir,
   metrics,

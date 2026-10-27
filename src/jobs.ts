@@ -86,7 +86,7 @@ export class JobStore {
     return row ? this.fromRow(row) : null;
   }
 
-  listJobs(opts: { keyId?: string; authOn?: boolean; limit?: number } = {}): Job[] {
+  listJobs(opts: { keyId?: string; userId?: string; authOn?: boolean; limit?: number } = {}): Job[] {
     const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
     const rows = this.db
       .prepare('SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?')
@@ -97,7 +97,9 @@ export class JobStore {
       const job = this.fromRow(row);
       if (opts.authOn) {
         const owner = typeof job.options.keyId === 'string' ? job.options.keyId : null;
-        if (!owner || !opts.keyId || owner !== opts.keyId) {
+        const ownerUser = typeof job.options.userId === 'string' ? job.options.userId : null;
+        const permitted = opts.userId ? ownerUser === opts.userId : Boolean(owner && opts.keyId === owner);
+        if (!permitted) {
           continue;
         }
       }

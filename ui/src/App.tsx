@@ -1,13 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   fetchMe,
+  fetchAccountSession,
   fetchOpsStats,
   fetchRecentJobs,
   mintDemoKey,
+  createAccountKey,
+  signInUrl,
+  signOut,
   useSmartCrawl,
   type JobMode,
   type JobSummaryItem,
   type MeInfo,
+  type AccountSession,
   type OpsStats,
 } from './hooks/useSmartCrawl';
 import { DocsView } from './components/DocsView';
@@ -84,6 +89,8 @@ export default function CrawlerInterface() {
   const [online, setOnline] = useState<boolean | null>(null);
   const [ops, setOps] = useState<OpsStats | null>(null);
   const [me, setMe] = useState<MeInfo | null>(null);
+  const [account, setAccount] = useState<AccountSession | null>(null);
+  const [creatingAccountKey, setCreatingAccountKey] = useState(false);
   const [recentJobs, setRecentJobs] = useState<JobSummaryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -110,6 +117,7 @@ export default function CrawlerInterface() {
     void fetchOpsStats(key).then(setOps);
     void fetchMe(key).then(setMe);
     void fetchRecentJobs(key, 10).then(setRecentJobs);
+    void fetchAccountSession().then(setAccount);
   }, [apiKey]);
 
   const handleMintDemoKey = async () => {
@@ -125,6 +133,26 @@ export default function CrawlerInterface() {
     } finally {
       setMintingKey(false);
     }
+  };
+
+  const handleCreateAccountKey = async () => {
+    setCreatingAccountKey(true);
+    try {
+      const issued = await createAccountKey('default');
+      if (issued?.key) {
+        setApiKey(issued.key);
+        localStorage.setItem('smartcrawl.apiKey', issued.key);
+        setShowConfig(true);
+        refreshTelemetry(issued.key);
+      }
+    } finally {
+      setCreatingAccountKey(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    setAccount((current) => current ? { ...current, authenticated: false, user: null } : current);
   };
 
   useEffect(() => {
@@ -256,7 +284,40 @@ export default function CrawlerInterface() {
         </div>
 
         <div className="flex items-center gap-3 text-xs">
-          {me?.key ? (
+          {account?.configured && account.authenticated && account.user ? (
+            <>
+              <span className="hidden sm:inline text-slate-400">
+                {account.user.name || account.user.email || 'Signed in'}
+              </span>
+              {me?.key ? (
+                <span className="flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-0.5 rounded">
+                  <KeyRound size={12} />
+                  {me.key.remaining}/{me.key.dailyLimit} credits today
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCreateAccountKey}
+                  disabled={creatingAccountKey}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-2.5 py-1 rounded transition-colors"
+                >
+                  <KeyRound size={12} />
+                  {creatingAccountKey ? 'Creating…' : 'Create API Key'}
+                </button>
+              )}
+              <button type="button" onClick={() => void handleSignOut()} className="text-slate-400 hover:text-slate-200">
+                Sign out
+              </button>
+            </>
+          ) : account?.configured ? (
+            <a
+              href={signInUrl()}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded transition-colors"
+            >
+              <KeyRound size={12} />
+              Start free
+            </a>
+          ) : me?.key ? (
             <span className="flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-0.5 rounded">
               <KeyRound size={12} />
               {me.key.name} ({me.key.remaining}/{me.key.dailyLimit} left today)

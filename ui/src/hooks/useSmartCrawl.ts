@@ -64,6 +64,31 @@ export interface JobSummaryItem {
   updatedAt: number;
 }
 
+export interface AccountUser {
+  id: string;
+  email?: string;
+  name?: string;
+  plan: string;
+  createdAt: number;
+}
+
+export interface AccountSession {
+  configured: boolean;
+  authenticated: boolean;
+  user: AccountUser | null;
+}
+
+export interface AccountKey {
+  id: string;
+  name: string;
+  prefix: string;
+  dailyLimit: number;
+  usedToday: number;
+  remaining: number;
+  revoked: boolean;
+  createdAt: number;
+}
+
 const apiBase = () => import.meta.env.VITE_API_URL ?? '';
 
 function authHeaders(apiKey?: string): Record<string, string> {
@@ -232,4 +257,37 @@ export async function mintDemoKey(name = 'playground-demo'): Promise<{ key: stri
   } catch {
     return null;
   }
+}
+
+export async function fetchAccountSession(): Promise<AccountSession | null> {
+  try {
+    const res = await fetch(`${apiBase()}/auth/me`, { credentials: 'include' });
+    if (!res.ok) return null;
+    return await res.json() as AccountSession;
+  } catch {
+    return null;
+  }
+}
+
+export async function createAccountKey(name = 'default'): Promise<{ key: string; dailyLimit: number } | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/account/keys`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) return null;
+    return await res.json() as { key: string; dailyLimit: number };
+  } catch {
+    return null;
+  }
+}
+
+export async function signOut(): Promise<void> {
+  await fetch(`${apiBase()}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => undefined);
+}
+
+export function signInUrl(): string {
+  return `${apiBase()}/auth/login`;
 }

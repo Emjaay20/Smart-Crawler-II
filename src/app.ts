@@ -3,11 +3,13 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import fs from 'node:fs';
 import path from 'node:path';
 import { SlackReporter } from './alerts.js';
+import { AccountStore, type Account } from './accounts.js';
 import type { CrawledPage, CrawlResult, DiscoverRequest, MapResult } from './crawl.js';
 import { classifyError } from './errors.js';
 import type { JobStore } from './jobs.js';
 import { bearerToken, safeEqualToken, utcDay, type AuthKey, type KeyStore } from './keys.js';
 import { Metrics } from './metrics.js';
+import { OidcClient } from './oidc.js';
 import type { ScrapeRequest, ScrapeResult } from './types.js';
 import { InvalidUrlError, validateHttpUrl } from './url.js';
 
@@ -26,6 +28,9 @@ export interface AppDeps {
   keys?: KeyStore;
   adminToken?: string;
   maxConcurrentJobs?: number;
+  accounts?: AccountStore;
+  oidc?: OidcClient;
+  freeDailyLimit?: number;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -69,6 +74,7 @@ export function createApp(deps: AppDeps): Express {
   });
 
   const authOn = Boolean(deps.adminToken && deps.keys);
+  const freeDailyLimit = Math.max(1, deps.freeDailyLimit ?? (Number(process.env.SMARTCRAWL_FREE_DAILY_LIMIT) || 25));
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -112,6 +118,64 @@ export function createApp(deps: AppDeps): Express {
     next();
   };
 
+  const currentAccount = (req: Request): Account | null => {
+    if (!deps.accounts) return null;
+    return deps.accounts.getSessionUser(readCookie(req.headers.cookie, 'smartcrawl_session'));
+  };
+
+  const requireAccount = (req: Request, res: Response, next: NextFunction) => {
+    const account = currentAccount(req);
+    if (!account) return res.status(401).json({ error: 'Sign in required', code: 'unauthorized' });
+    res.locals.account = account;
+    next();
+  };
+
+  app.get('/auth/login', async (_req, res) => {
+    if (!deps.accounts || !deps.oidc) {
+      return res.status(501).json({ error: 'Account sign-in is not configured' });
+    }
+    try {
+      const attempt = deps.accounts.createLoginAttempt();
+      res.redirect(302, await deps.oidc.authorizationUrl(attempt));
+    } catch (err) {
+      res.status(503).json({ error: publicAuthError(err) });
+    }
+  });
+
+  app.get('/auth/callback', async (req, res) => {
+    if (!deps.accounts || !deps.oidc) {
+      return res.status(501).json({ error: 'Account sign-in is not configured' });
+    }
+    const state = typeof req.query.state === 'string' ? req.query.state : undefined;
+    const code = typeof req.query.code === 'string' ? req.query.code : undefined;
+    const attempt = deps.accounts.consumeLoginAttempt(state);
+    if (!code || !attempt) return res.status(400).json({ error: 'This sign-in request has expired or is invalid' });
+    try {
+      const identity = await deps.oidc.exchangeCode({ code, ...attempt });
+      const account = deps.accounts.upsertUser(identity);
+      const session = deps.accounts.createSession(account.id);
+      res.setHeader('set-cookie', sessionCookie(session, deps.oidc.config.redirectUri));
+      res.redirect(302, '/');
+    } catch (err) {
+      res.status(401).json({ error: publicAuthError(err) });
+    }
+  });
+
+  app.post('/auth/logout', (req, res) => {
+    deps.accounts?.revokeSession(readCookie(req.headers.cookie, 'smartcrawl_session'));
+    res.setHeader('set-cookie', 'smartcrawl_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+    res.status(204).end();
+  });
+
+  app.get('/auth/me', (req, res) => {
+    const account = currentAccount(req);
+    res.json({
+      configured: Boolean(deps.accounts && deps.oidc),
+      authenticated: Boolean(account),
+      user: account ? serializeAccount(account) : null,
+    });
+  });
+
   const consumeQuotaOrReject = (res: Response): boolean => {
     if (!deps.keys) return true;
     const key = res.locals.apiKey as AuthKey | undefined;
@@ -147,6 +211,39 @@ export function createApp(deps: AppDeps): Express {
       authRequired: authOn,
       key: usage,
     });
+  });
+
+  app.get('/v1/account', requireAccount, (_req, res) => {
+    const account = res.locals.account as Account;
+    res.json({
+      user: serializeAccount(account),
+      apiKeys: deps.keys?.listKeysForUser(account.id) ?? [],
+    });
+  });
+
+  app.post('/v1/account/keys', requireAccount, (req, res) => {
+    if (!deps.keys) return res.status(501).json({ error: 'Key store is not configured' });
+    const account = res.locals.account as Account;
+    const body = (req.body ?? {}) as { name?: unknown };
+    const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 64) : 'default';
+    const issued = deps.keys.createKey(name, freeDailyLimit, account.id);
+    res.status(201).json({
+      id: issued.id,
+      name: issued.name,
+      key: issued.key,
+      prefix: issued.prefix,
+      dailyLimit: issued.dailyLimit,
+    });
+  });
+
+  app.delete('/v1/account/keys/:id', requireAccount, (req, res) => {
+    if (!deps.keys) return res.status(501).json({ error: 'Key store is not configured' });
+    const account = res.locals.account as Account;
+    if (!deps.keys.keyBelongsToUser(req.params.id, account.id)) {
+      return res.status(404).json({ error: 'API key not found', code: 'not_found' });
+    }
+    deps.keys.revoke(req.params.id);
+    res.json({ id: req.params.id, revoked: true });
   });
 
   app.post('/v1/keys/demo', (req, res) => {
@@ -339,7 +436,7 @@ export function createApp(deps: AppDeps): Express {
     const rawLimit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20;
     const limit = Number.isFinite(rawLimit) ? rawLimit : 20;
     const key = res.locals.apiKey as AuthKey | undefined;
-    const jobs = deps.store.listJobs({ keyId: key?.id, authOn, limit }).map(serializeJobSummary);
+    const jobs = deps.store.listJobs({ keyId: key?.id, userId: key?.userId, authOn, limit }).map(serializeJobSummary);
     res.json({ jobs });
   });
 
@@ -371,6 +468,7 @@ export function createApp(deps: AppDeps): Express {
         || req.path === '/health'
         || req.path === '/ready'
         || req.path === '/metrics'
+        || req.path.startsWith('/auth')
       ) {
         return next();
       }
@@ -383,14 +481,45 @@ export function createApp(deps: AppDeps): Express {
 
 function keyOptions(res: Response): Record<string, unknown> {
   const key = res.locals.apiKey as AuthKey | undefined;
-  return key ? { keyId: key.id } : {};
+  return key ? { keyId: key.id, ...(key.userId ? { userId: key.userId } : {}) } : {};
 }
 
 function canReadJob(options: Record<string, unknown>, key: AuthKey | undefined, authOn: boolean): boolean {
   if (!authOn) return true;
   const owner = typeof options.keyId === 'string' ? options.keyId : null;
-  if (!owner || !key) return false;
-  return owner === key.id;
+  const ownerUser = typeof options.userId === 'string' ? options.userId : null;
+  if (!key) return false;
+  if (key.userId && ownerUser) return key.userId === ownerUser;
+  return Boolean(owner && owner === key.id);
+}
+
+function readCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=');
+    if (index < 0) continue;
+    if (part.slice(0, index).trim() === name) return decodeURIComponent(part.slice(index + 1).trim());
+  }
+  return undefined;
+}
+
+function sessionCookie(token: string, redirectUri: string): string {
+  const secure = redirectUri.startsWith('https://') ? '; Secure' : '';
+  return `smartcrawl_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}${secure}`;
+}
+
+function serializeAccount(account: Account) {
+  return {
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    plan: account.plan,
+    createdAt: account.createdAt,
+  };
+}
+
+function publicAuthError(_err: unknown): string {
+  return 'Could not complete sign-in. Please try again.';
 }
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
