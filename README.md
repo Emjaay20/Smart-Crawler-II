@@ -61,6 +61,7 @@ curl -s http://localhost:3000/health
 | GET | `/ready` | SQLite is readable |
 | GET | `/metrics` | Prometheus counters (`scrape_jobs_total`, `scrape_errors_total`, `worker_active_jobs`, `worker_queue_depth`, p95 latency) |
 | GET | `/v1/stats` | JSON snapshot of the same counters |
+| GET | `/v1/providers` | Which optional server-side content providers are enabled (never exposes credentials) |
 | GET | `/v1/report` | Operational health digest (`healthy` / `degraded` / `critical`) |
 | GET | `/v1/me` | Auth mode and current API key quota (`dailyLimit`, `usedToday`, `remaining`) |
 | POST | `/v1/scrape` | Enqueue a scrape job |
@@ -83,12 +84,15 @@ curl -s http://localhost:3000/health
   "formats": ["markdown", "links", "metadata", "html"],
   "onlyMainContent": true,
   "js": "auto",
+  "provider": "local",
   "timeoutMs": 15000,
   "userAgent": "SmartCrawl/1.0"
 }
 ```
 
 `js`: `"auto"` (default) uses HTTP then Playwright if the body looks empty; `false` is HTTP only; `true` always uses Chromium.
+
+`provider`: `"local"` (default) keeps work inside SmartCrawl's HTTP/Playwright pipeline. When an operator has configured `FIRECRAWL_API_KEY` as a private deployment environment variable, a single-page request may use `"firecrawl"`, or `"auto"` may use it only after an eligible local failure. Provider credentials are never accepted from, returned to, or stored by the browser. Map and crawl jobs always stay local so a multi-page request cannot unexpectedly consume managed-provider credits.
 
 Successful `data`:
 
@@ -110,7 +114,7 @@ Successful `data`:
 }
 ```
 
-Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `extract_empty`, `unknown`.
+Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `provider_unavailable`, `extract_empty`, `unknown`.
 
 ## Docker / AetherHost
 

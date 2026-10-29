@@ -22,6 +22,7 @@ export interface BrowserRender {
 export interface ScrapeDeps {
   fetch?: typeof fetch;
   renderWithBrowser?: (url: string, request: ResolvedScrapeRequest) => Promise<BrowserRender>;
+  scrapeWithFirecrawl?: (request: ResolvedScrapeRequest) => Promise<ScrapeResult>;
   now?: () => number;
 }
 
@@ -30,6 +31,7 @@ export interface ResolvedScrapeRequest {
   formats: Format[];
   onlyMainContent: boolean;
   js: boolean | 'auto';
+  provider: 'local' | 'auto' | 'firecrawl';
   timeoutMs: number;
   userAgent: string;
 }
@@ -53,21 +55,16 @@ export async function scrape(request: ScrapeRequest, deps: ScrapeDeps = {}): Pro
   try {
     await assertRobotsAllowed(resolved, fetchImpl);
 
-    if (resolved.js === true) {
-      return finalize(await scrapeWithBrowser(resolved, deps), resolved, started, deps);
-    }
+    if (resolved.provider === 'firecrawl') return scrapeWithConfiguredFirecrawl(resolved, deps);
 
-    const httpResult = await scrapeWithHttp(resolved, fetchImpl, deps.now);
-    const shouldEscalate = resolved.js !== false && httpResult.looksLikeSpa;
-
-    if (!shouldEscalate) {
-      if (httpResult.looksLikeSpa && resolved.js === false) {
-        throw new ScrapeError('js_required', 'Page looks like a JavaScript shell and js rendering is disabled');
+    try {
+      return await scrapeLocally(resolved, fetchImpl, started, deps);
+    } catch (err) {
+      if (resolved.provider === 'auto' && canEscalateToFirecrawl(err) && deps.scrapeWithFirecrawl) {
+        return deps.scrapeWithFirecrawl(resolved);
       }
-      return finalize(httpResult, resolved, started, deps);
+      throw err;
     }
-
-    return finalize(await scrapeWithBrowser(resolved, deps), resolved, started, deps);
   } catch (err) {
     if (err instanceof ScrapeError) throw err;
     const classified = classifyError(err);
@@ -83,9 +80,45 @@ function resolveRequest(request: ScrapeRequest): ResolvedScrapeRequest {
     formats: request.formats?.length ? request.formats : DEFAULT_FORMATS,
     onlyMainContent: request.onlyMainContent ?? true,
     js: request.js ?? 'auto',
+    provider: request.provider ?? 'local',
     timeoutMs: request.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     userAgent: request.userAgent ?? DEFAULT_USER_AGENT,
   };
+}
+
+async function scrapeLocally(
+  resolved: ResolvedScrapeRequest,
+  fetchImpl: typeof fetch,
+  started: number,
+  deps: ScrapeDeps,
+): Promise<ScrapeResult> {
+  if (resolved.js === true) {
+    return finalize(await scrapeWithBrowser(resolved, deps), resolved, started, deps);
+  }
+
+  const httpResult = await scrapeWithHttp(resolved, fetchImpl, deps.now);
+  const shouldEscalate = resolved.js !== false && httpResult.looksLikeSpa;
+
+  if (!shouldEscalate) {
+    if (httpResult.looksLikeSpa && resolved.js === false) {
+      throw new ScrapeError('js_required', 'Page looks like a JavaScript shell and js rendering is disabled');
+    }
+    return finalize(httpResult, resolved, started, deps);
+  }
+
+  return finalize(await scrapeWithBrowser(resolved, deps), resolved, started, deps);
+}
+
+function scrapeWithConfiguredFirecrawl(request: ResolvedScrapeRequest, deps: ScrapeDeps): Promise<ScrapeResult> {
+  if (!deps.scrapeWithFirecrawl) {
+    throw new ScrapeError('provider_unavailable', 'Firecrawl is not configured for this SmartCrawl deployment');
+  }
+  return deps.scrapeWithFirecrawl(request);
+}
+
+function canEscalateToFirecrawl(err: unknown): boolean {
+  if (!(err instanceof ScrapeError)) return false;
+  return ['http_4xx', 'http_5xx', 'timeout', 'js_required'].includes(err.code);
 }
 
 async function assertRobotsAllowed(request: ResolvedScrapeRequest, fetchImpl: typeof fetch): Promise<void> {

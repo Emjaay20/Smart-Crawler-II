@@ -26,6 +26,7 @@ export interface ScrapeOptions {
   limit?: number;
   includePaths?: string[];
   excludePaths?: string[];
+  provider?: 'local' | 'auto' | 'firecrawl';
   apiKey?: string;
 }
 
@@ -34,6 +35,7 @@ export interface OpsStats {
   scrapeFailed: number;
   engineHttp: number;
   enginePlaywright: number;
+  engineFirecrawl: number;
   durationAvgMs: number;
   durationP95Ms: number;
   mapLinks: number;
@@ -87,6 +89,10 @@ export interface AccountKey {
   remaining: number;
   revoked: boolean;
   createdAt: number;
+}
+
+export interface ProviderStatus {
+  firecrawl: { configured: boolean };
 }
 
 const apiBase = () => import.meta.env.VITE_API_URL ?? '';
@@ -159,6 +165,7 @@ export const useSmartCrawl = () => {
           timeoutMs: options.timeoutMs,
           userAgent: options.userAgent,
           js: options.js,
+          provider: options.provider,
           limit: options.limit,
           includePaths: options.includePaths?.length ? options.includePaths : undefined,
           excludePaths: options.excludePaths?.length ? options.excludePaths : undefined,
@@ -229,6 +236,16 @@ export async function fetchMe(apiKey?: string): Promise<MeInfo | null> {
     const res = await fetch(`${apiBase()}/v1/me`, { headers: authHeaders(apiKey) });
     if (!res.ok) return null;
     return await res.json() as MeInfo;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchProviderStatus(): Promise<ProviderStatus | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/providers`);
+    if (!res.ok) return null;
+    return await res.json() as ProviderStatus;
   } catch {
     return null;
   }

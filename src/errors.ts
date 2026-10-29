@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'http_4xx'
   | 'http_5xx'
   | 'js_required'
+  | 'provider_unavailable'
   | 'extract_empty'
   | 'unknown';
 

@@ -68,7 +68,7 @@ export const Footer: React.FC<FooterProps> = ({ ops, online, onOpenDocs }) => {
             <div className="hidden md:flex items-center gap-3">
               <span>Jobs: {ops.scrapeCompleted} ok / {ops.scrapeFailed} fail</span>
               <span>p95: {ops.durationP95Ms}ms</span>
-              <span>HTTP: {ops.engineHttp} | PW: {ops.enginePlaywright}</span>
+              <span>HTTP: {ops.engineHttp} | PW: {ops.enginePlaywright} | Cloud: {ops.engineFirecrawl}</span>
             </div>
           )}
 

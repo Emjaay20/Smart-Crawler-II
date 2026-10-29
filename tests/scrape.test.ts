@@ -74,6 +74,54 @@ describe('scrape', () => {
     ).rejects.toMatchObject({ code: 'js_required' } satisfies Partial<ScrapeError>);
   });
 
+  it('uses the explicitly selected managed provider only after robots validation', async () => {
+    const scrapeWithFirecrawl = vi.fn(async () => ({
+      success: true as const,
+      markdown: '# Managed result',
+      links: [],
+      metadata: {
+        statusCode: 200,
+        sourceUrl: 'https://food.example/managed',
+        finalUrl: 'https://food.example/managed',
+        redirectChain: [],
+        engine: 'firecrawl' as const,
+      },
+      warnings: [],
+      timing: { ttfbMs: 0, totalMs: 10 },
+    }));
+    const result = await scrape(
+      { url: 'https://food.example/managed', provider: 'firecrawl' },
+      { fetch: htmlFetch({}), scrapeWithFirecrawl },
+    );
+
+    expect(result.metadata.engine).toBe('firecrawl');
+    expect(scrapeWithFirecrawl).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to the managed provider only in auto mode after an eligible local failure', async () => {
+    const scrapeWithFirecrawl = vi.fn(async () => ({
+      success: true as const,
+      markdown: '# Recovered result',
+      links: [],
+      metadata: {
+        statusCode: 200,
+        sourceUrl: 'https://food.example/missing',
+        finalUrl: 'https://food.example/missing',
+        redirectChain: [],
+        engine: 'firecrawl' as const,
+      },
+      warnings: [],
+      timing: { ttfbMs: 0, totalMs: 10 },
+    }));
+    const result = await scrape(
+      { url: 'https://food.example/missing', provider: 'auto' },
+      { fetch: htmlFetch({}), scrapeWithFirecrawl },
+    );
+
+    expect(result.metadata.engine).toBe('firecrawl');
+    expect(scrapeWithFirecrawl).toHaveBeenCalledOnce();
+  });
+
   it('throws robots_blocked when robots.txt disallows the path', async () => {
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = String(input);

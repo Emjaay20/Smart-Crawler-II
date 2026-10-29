@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   fetchMe,
+  fetchProviderStatus,
   fetchAccountSession,
   fetchOpsStats,
   fetchRecentJobs,
@@ -17,6 +18,7 @@ import {
 } from './hooks/useSmartCrawl';
 import { DocsView } from './components/DocsView';
 import { Footer } from './components/Footer';
+import { LandingPage } from './components/LandingPage';
 import {
   Terminal,
   Settings,
@@ -43,6 +45,8 @@ const GOOGLEBOT_UA =
   'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
 type EngineMode = 'auto' | 'http' | 'playwright';
+type ProviderMode = 'local' | 'auto' | 'firecrawl';
+type MainView = 'landing' | 'workbench' | 'docs';
 
 interface CrawledPageItem {
   url: string;
@@ -72,11 +76,17 @@ function jsFromEngine(mode: EngineMode): boolean | 'auto' {
   return 'auto';
 }
 
+function viewFromLocation(): MainView {
+  if (typeof window === 'undefined') return 'landing';
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (pathname === '/app') return 'workbench';
+  if (pathname === '/docs' || window.location.hash === '#docs') return 'docs';
+  return 'landing';
+}
+
 export default function CrawlerInterface() {
   const { status, activeJobId, startJob, loadJob, data, logs, error } = useSmartCrawl();
-  const [mainView, setMainView] = useState<'workbench' | 'docs'>(() => {
-    return typeof window !== 'undefined' && window.location.hash === '#docs' ? 'docs' : 'workbench';
-  });
+  const [mainView, setMainView] = useState<MainView>(viewFromLocation);
   const [url, setUrl] = useState('https://example.com');
   const [activeTab, setActiveTab] = useState<'markdown' | 'links' | 'data' | 'console'>('console');
   const [selectedPageIdx, setSelectedPageIdx] = useState(0);
@@ -84,6 +94,7 @@ export default function CrawlerInterface() {
   const [timeoutMs, setTimeoutMs] = useState(15000);
   const [userAgent, setUserAgent] = useState('SmartCrawl/1.0');
   const [engine, setEngine] = useState<EngineMode>('auto');
+  const [provider, setProvider] = useState<ProviderMode>('local');
   const [mode, setMode] = useState<JobMode>('scrape');
   const [limit, setLimit] = useState(5);
   const [excludePathsInput, setExcludePathsInput] = useState('');
@@ -93,26 +104,27 @@ export default function CrawlerInterface() {
   const [ops, setOps] = useState<OpsStats | null>(null);
   const [me, setMe] = useState<MeInfo | null>(null);
   const [account, setAccount] = useState<AccountSession | null>(null);
+  const [firecrawlConfigured, setFirecrawlConfigured] = useState(false);
   const [creatingAccountKey, setCreatingAccountKey] = useState(false);
   const [recentJobs, setRecentJobs] = useState<JobSummaryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onHashChange = () => {
-      setMainView(window.location.hash === '#docs' ? 'docs' : 'workbench');
+    const onLocationChange = () => setMainView(viewFromLocation());
+    window.addEventListener('popstate', onLocationChange);
+    window.addEventListener('hashchange', onLocationChange);
+    return () => {
+      window.removeEventListener('popstate', onLocationChange);
+      window.removeEventListener('hashchange', onLocationChange);
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  const switchView = (v: 'workbench' | 'docs') => {
+  const switchView = (v: MainView) => {
     setMainView(v);
-    if (v === 'docs') {
-      window.location.hash = '#docs';
-    } else {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    }
+    const destination = v === 'landing' ? '/' : v === 'workbench' ? '/app' : '/docs';
+    window.history.pushState(null, '', destination);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const refreshTelemetry = useCallback((overrideKey?: string) => {
@@ -121,6 +133,7 @@ export default function CrawlerInterface() {
     void fetchMe(key).then(setMe);
     void fetchRecentJobs(key, 10).then(setRecentJobs);
     void fetchAccountSession().then(setAccount);
+    void fetchProviderStatus().then((providers) => setFirecrawlConfigured(Boolean(providers?.firecrawl.configured)));
   }, [apiKey]);
 
   const handleMintDemoKey = async () => {
@@ -206,6 +219,7 @@ export default function CrawlerInterface() {
         timeoutMs,
         userAgent,
         js: jsFromEngine(engine),
+        provider: targetMode === 'scrape' ? provider : 'local',
         mode: targetMode,
         limit,
         excludePaths,
@@ -271,7 +285,7 @@ export default function CrawlerInterface() {
         <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <button
             type="button"
-            onClick={() => switchView('workbench')}
+            onClick={() => switchView('landing')}
             className="sc-wordmark shrink-0 hover:opacity-70"
           >
             <span>SmartCrawl</span>
@@ -374,7 +388,13 @@ export default function CrawlerInterface() {
       </header>
 
       {/* Main Content Area */}
-      {mainView === 'docs' ? (
+      {mainView === 'landing' ? (
+        <LandingPage
+          onOpenWorkbench={() => switchView('workbench')}
+          onOpenDocs={() => switchView('docs')}
+          signInHref={account?.configured ? signInUrl() : undefined}
+        />
+      ) : mainView === 'docs' ? (
         <main className="flex-1 w-full">
           <DocsView />
         </main>
@@ -492,7 +512,21 @@ export default function CrawlerInterface() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {mode === 'scrape' && (
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Content provider</label>
+                        <select
+                          value={provider}
+                          onChange={(e) => setProvider(e.target.value as ProviderMode)}
+                          className="sc-select w-full px-2 py-1.5 text-xs outline-none"
+                        >
+                          <option value="local">Local engines only</option>
+                          <option value="auto" disabled={!firecrawlConfigured}>Auto fallback {firecrawlConfigured ? '' : '(not enabled)'}</option>
+                          <option value="firecrawl" disabled={!firecrawlConfigured}>Managed provider {firecrawlConfigured ? '' : '(not enabled)'}</option>
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-[11px] text-slate-400 mb-1">Engine</label>
                       <select
@@ -520,6 +554,18 @@ export default function CrawlerInterface() {
                       />
                     </div>
                   </div>
+
+                  {mode === 'scrape' && !firecrawlConfigured && (
+                    <p className="text-[11px] leading-relaxed text-[var(--ink-2)]">
+                      Managed fallback is not enabled on this deployment yet. Local HTTP and browser engines remain available.
+                    </p>
+                  )}
+
+                  {mode === 'scrape' && provider !== 'local' && firecrawlConfigured && (
+                    <p className="text-[11px] leading-relaxed text-[var(--ink-2)]">
+                      Managed requests use the server’s configured provider account. Its key is never sent to your browser.
+                    </p>
+                  )}
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
@@ -829,7 +875,7 @@ export default function CrawlerInterface() {
           <footer className="border-t border-slate-800 bg-slate-950/80 px-4 py-2 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2 select-none">
             <span>
               {ops
-                ? `Jobs: ${ops.scrapeCompleted} ok / ${ops.scrapeFailed} failed · Engine: ${ops.engineHttp} http / ${ops.enginePlaywright} playwright`
+                ? `Jobs: ${ops.scrapeCompleted} ok / ${ops.scrapeFailed} failed · Engine: ${ops.engineHttp} http / ${ops.enginePlaywright} playwright / ${ops.engineFirecrawl} cloud`
                 : payload?.metadata?.engine
                   ? `Engine: ${payload.metadata.engine}`
                   : 'Engine: fetch-first (HTTP + Readability)'}

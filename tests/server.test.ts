@@ -96,9 +96,13 @@ describe('http api', () => {
   it('runs a scrape job and returns durable status with real logs', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
+    let receivedProvider: unknown;
     const app = createApp({
       store,
-      scrape: async () => sample,
+      scrape: async (request) => {
+        receivedProvider = request.provider;
+        return sample;
+      },
     });
     const started = await listen(app);
     server = started.server;
@@ -106,7 +110,7 @@ describe('http api', () => {
     const created = await fetch(`${started.base}/v1/scrape`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: 'https://example.com', timeoutMs: 3000, userAgent: 'test-ua' }),
+      body: JSON.stringify({ url: 'https://example.com', timeoutMs: 3000, userAgent: 'test-ua', provider: 'auto' }),
     });
     expect(created.status).toBe(200);
     const { jobId } = await created.json() as { jobId: string };
@@ -121,6 +125,7 @@ describe('http api', () => {
     }
 
     expect(payload.status).toBe('completed');
+    expect(receivedProvider).toBe('auto');
     expect(payload.data).toEqual(sample);
     expect(Array.isArray(payload.logs)).toBe(true);
     expect((payload.logs as { msg: string }[]).some((line) => /https:\/\/example.com/.test(line.msg))).toBe(true);
@@ -143,10 +148,23 @@ describe('http api', () => {
     const started = await listen(app);
     server = started.server;
 
-    const page = await fetch(`${started.base}/`);
-    expect(page.status).toBe(200);
-    expect(await page.text()).toMatch(/SmartCrawl/);
+    for (const route of ['/', '/app', '/docs']) {
+      const page = await fetch(`${started.base}${route}`);
+      expect(page.status).toBe(200);
+      expect(await page.text()).toMatch(/SmartCrawl/);
+    }
     expect((await fetch(`${started.base}/health`)).status).toBe(200);
+  });
+
+  it('reports only whether the optional provider is configured', async () => {
+    const store = new JobStore(':memory:');
+    stores.push(store);
+    const app = createApp({ store, scrape: async () => sample, firecrawlConfigured: true });
+    const started = await listen(app);
+    server = started.server;
+
+    const providers = await (await fetch(`${started.base}/v1/providers`)).json();
+    expect(providers).toEqual({ firecrawl: { configured: true } });
   });
 
   it('exposes prometheus metrics after a scrape job', async () => {

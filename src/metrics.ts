@@ -2,7 +2,7 @@ import type { ErrorCode } from './errors.js';
 
 export interface ScrapeObservation {
   ok: boolean;
-  engine?: 'http' | 'playwright';
+  engine?: 'http' | 'playwright' | 'firecrawl';
   durationMs: number;
   errorCode?: ErrorCode;
 }
@@ -15,6 +15,7 @@ export interface MetricsSnapshot {
   errorsByCode: Record<string, number>;
   engineHttp: number;
   enginePlaywright: number;
+  engineFirecrawl: number;
   durationCount: number;
   durationAvgMs: number;
   durationP95Ms: number;
@@ -33,6 +34,7 @@ export class Metrics {
   private errorsByCode: Record<string, number> = {};
   private engineHttp = 0;
   private enginePlaywright = 0;
+  private engineFirecrawl = 0;
   private durations: number[] = [];
   private mapLinks = 0;
   private crawlPages = 0;
@@ -51,6 +53,7 @@ export class Metrics {
     }
     if (obs.engine === 'http') this.engineHttp += 1;
     if (obs.engine === 'playwright') this.enginePlaywright += 1;
+    if (obs.engine === 'firecrawl') this.engineFirecrawl += 1;
     this.durations.push(obs.durationMs);
     if (this.durations.length > RING) this.durations.shift();
   }
@@ -80,6 +83,7 @@ export class Metrics {
       errorsByCode: { ...this.errorsByCode },
       engineHttp: this.engineHttp,
       enginePlaywright: this.enginePlaywright,
+      engineFirecrawl: this.engineFirecrawl,
       durationCount,
       durationAvgMs: durationCount ? Math.round(this.durations.reduce((sum, value) => sum + value, 0) / durationCount) : 0,
       durationP95Ms: percentile(this.durations, 0.95),
@@ -118,6 +122,7 @@ export class Metrics {
       `# TYPE scrape_engine_total counter`,
       `scrape_engine_total{engine="http"} ${s.engineHttp}`,
       `scrape_engine_total{engine="playwright"} ${s.enginePlaywright}`,
+      `scrape_engine_total{engine="firecrawl"} ${s.engineFirecrawl}`,
       `# HELP scrape_duration_ms_avg Average scrape duration`,
       `# TYPE scrape_duration_ms_avg gauge`,
       `scrape_duration_ms_avg ${s.durationAvgMs}`,

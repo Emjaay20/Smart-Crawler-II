@@ -9,6 +9,7 @@ import { KeyStore } from './keys.js';
 import { JobStore } from './jobs.js';
 import { Metrics } from './metrics.js';
 import { OidcClient } from './oidc.js';
+import { FirecrawlProvider } from './firecrawl.js';
 import { scrape } from './scrape.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,7 +24,11 @@ store.recoverStaleJobs();
 const keys = new KeyStore(store.db);
 const accounts = new AccountStore(store.db);
 const metrics = new Metrics();
-const scrapeDeps = { renderWithBrowser: renderWithPlaywright };
+const firecrawl = FirecrawlProvider.fromEnv();
+const scrapeDeps = {
+  renderWithBrowser: renderWithPlaywright,
+  ...(firecrawl ? { scrapeWithFirecrawl: firecrawl.scrape.bind(firecrawl) } : {}),
+};
 const adminToken = resolveAdminToken(dbPath);
 
 const app = createApp({
@@ -34,6 +39,7 @@ const app = createApp({
   adminToken,
   publicDir,
   metrics,
+  firecrawlConfigured: Boolean(firecrawl),
   scrape: (request) => scrape(request, scrapeDeps),
   map: (request) => mapSite(request, scrapeDeps),
   crawl: (request, hooks) => crawlSite(request, { ...scrapeDeps, ...hooks }),

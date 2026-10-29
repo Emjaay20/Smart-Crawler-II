@@ -378,6 +378,49 @@ input:user-invalid {
 .docs-theme .bg-emerald-950\/80 { background-color: #edf3ec !important; }
 .docs-theme .border-emerald-800\/80 { border-color: #c6d7c9 !important; }
 
+.sc-landing { margin: 0 auto; max-width: 1180px; padding: clamp(2.5rem, 6vw, 5.5rem) 1rem 5rem; width: 100%; }
+.sc-hero { align-items: center; display: grid; gap: clamp(2.5rem, 6vw, 5rem); grid-template-columns: minmax(0, 1.05fr) minmax(330px, .95fr); min-height: min(660px, calc(100dvh - 56px)); }
+.sc-eyebrow { align-items: center; color: var(--ink-2); display: flex; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; font-weight: 500; gap: 7px; letter-spacing: .12em; text-transform: uppercase; }
+.sc-hero h1, .sc-section h2, .sc-cta-section h2 { color: var(--ink); font-family: Fraunces, Georgia, serif; font-weight: 500; letter-spacing: -.05em; line-height: .98; margin: 18px 0; }
+.sc-hero h1 { font-size: clamp(3.15rem, 7vw, 5.7rem); max-width: 640px; }
+.sc-hero h1 em { color: var(--sage); font-style: italic; }
+.sc-hero-lede { color: var(--ink-2); font-size: clamp(1rem, 1.4vw, 1.12rem); line-height: 1.65; max-width: 560px; }
+.sc-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+.sc-button--hero { min-height: 48px; padding: 0 17px; }
+.sc-secondary-button { align-items: center; background: transparent; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--ink); display: inline-flex; font-size: 13px; font-weight: 500; gap: 8px; justify-content: center; min-height: 48px; padding: 0 16px; }
+.sc-secondary-button:hover { background: var(--surface); border-color: var(--ink); }
+.sc-proof-line { color: var(--ink-2); display: flex; flex-wrap: wrap; font-size: 12px; gap: 12px 20px; margin-top: 25px; }
+.sc-proof-line span { align-items: center; display: inline-flex; gap: 5px; }
+.sc-proof-line svg { color: var(--sage); }
+.sc-hero-demo { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px; box-shadow: 0 16px 38px rgba(75, 59, 38, .1); overflow: hidden; transform: rotate(1.25deg); }
+.sc-demo-topline { align-items: center; background: var(--surface-2); border-bottom: 1px solid var(--border); color: var(--ink-2); display: flex; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; gap: 7px; padding: 13px 16px; }
+.sc-demo-topline span:last-child { color: var(--sage); margin-left: auto; }
+.sc-demo-url { background: var(--paper-soft); border-bottom: 1px solid var(--border); color: var(--ink-3); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; margin: 16px; padding: 13px; }
+.sc-demo-url strong { color: var(--ink-2); font-weight: 500; }
+.sc-demo-output { border-top: 1px solid var(--border); min-height: 285px; }
+.sc-demo-tabs { border-bottom: 1px solid var(--border); display: flex; gap: 21px; padding: 0 17px; }
+.sc-demo-tabs span { color: var(--ink-3); font-size: 12px; padding: 13px 0 10px; }
+.sc-demo-tabs .active { border-bottom: 1.5px solid var(--ink); color: var(--ink); }
+.sc-demo-copy { padding: 28px 24px 12px; }
+.sc-demo-copy h2 { font-family: Fraunces, Georgia, serif; font-size: 25px; font-weight: 500; letter-spacing: -.03em; margin: 10px 0 8px; }
+.sc-demo-copy p { color: var(--ink-2); font-size: 13px; line-height: 1.55; max-width: 300px; }
+.sc-demo-lines { display: grid; gap: 8px; padding: 10px 24px 28px; }
+.sc-demo-lines i { background: var(--paper-soft); display: block; height: 7px; width: 100%; }.sc-demo-lines i:nth-child(2) { width: 82%; }.sc-demo-lines i:nth-child(3) { width: 91%; }.sc-demo-lines i:nth-child(4) { width: 57%; }
+.sc-section { padding: clamp(4.5rem, 10vw, 8rem) 0; }
+.sc-section--intro { border-top: 1px solid var(--border); }
+.sc-section h2, .sc-cta-section h2 { font-size: clamp(2.35rem, 5vw, 4rem); max-width: 700px; }
+.sc-step-grid { display: grid; gap: 16px; grid-template-columns: repeat(3, 1fr); margin-top: 35px; }
+.sc-step { background: rgba(255,255,255,.62); border: 1px solid var(--border); border-radius: 16px; min-height: 235px; padding: 22px; position: relative; }
+.sc-step-number { color: var(--ink-3); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; position: absolute; right: 20px; top: 21px; }
+.sc-step-icon { align-items: center; background: var(--paper-soft); border: 1px solid var(--border); border-radius: 10px; display: flex; height: 39px; justify-content: center; width: 39px; }.sc-step-icon svg { color: var(--sage); }
+.sc-step h3 { font-size: 16px; font-weight: 600; margin: 36px 0 8px; }.sc-step p, .sc-section-copy { color: var(--ink-2); font-size: 13px; line-height: 1.65; }
+.sc-split-section { border-top: 1px solid var(--border); display: grid; gap: clamp(2rem, 7vw, 6rem); grid-template-columns: 1fr 1fr; }.sc-section-copy { max-width: 530px; }
+.sc-text-link { align-items: center; color: var(--ink); display: inline-flex; font-size: 13px; font-weight: 600; gap: 7px; margin-top: 22px; }.sc-text-link:hover { color: var(--sage); }
+.sc-principles { border-top: 1px solid var(--border); }.sc-principles > div { align-items: flex-start; border-bottom: 1px solid var(--border); display: flex; gap: 13px; padding: 17px 0; }.sc-principles svg { color: var(--sage); flex: none; margin-top: 2px; }.sc-principles strong, .sc-principles small { display: block; }.sc-principles strong { font-size: 13px; font-weight: 600; }.sc-principles small { color: var(--ink-2); font-size: 12px; line-height: 1.5; margin-top: 3px; }
+.sc-cta-section { background: var(--accent-ink); border-radius: 16px; color: white; padding: clamp(2.5rem, 7vw, 5rem); text-align: center; }.sc-cta-section .sc-eyebrow { color: #bab5b0; justify-content: center; }.sc-cta-section h2 { color: white; margin-left: auto; margin-right: auto; }.sc-cta-section p:not(.sc-eyebrow) { color: #c9c4be; font-size: 14px; line-height: 1.6; margin: 0 auto 24px; max-width: 510px; }.sc-cta-section .sc-button { background: white; border-color: white; color: var(--ink); }.sc-cta-section .sc-button:hover { background: var(--paper-soft); border-color: var(--paper-soft); }
+
+@media (max-width: 820px) { .sc-hero { grid-template-columns: 1fr; min-height: auto; }.sc-hero-demo { margin: 12px 4px; transform: none; }.sc-step-grid, .sc-split-section { grid-template-columns: 1fr; }.sc-section { padding: 4.5rem 0; } }
+
 @supports not (scrollbar-color: auto) {
   .custom-scrollbar::-webkit-scrollbar {
     width: 10px;

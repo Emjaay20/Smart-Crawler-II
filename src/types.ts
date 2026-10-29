@@ -24,6 +24,8 @@ export interface ScrapeRequest {
   formats?: Format[];
   onlyMainContent?: boolean;
   js?: boolean | 'auto';
+  /** Local is free and private. Auto only escalates when explicitly selected by a caller. */
+  provider?: 'local' | 'auto' | 'firecrawl';
   timeoutMs?: number;
   userAgent?: string;
 }
@@ -38,7 +40,7 @@ export interface ScrapeResult {
     sourceUrl: string;
     finalUrl: string;
     redirectChain: string[];
-    engine: 'http' | 'playwright';
+    engine: 'http' | 'playwright' | 'firecrawl';
     charset?: string;
   };
   warnings: string[];

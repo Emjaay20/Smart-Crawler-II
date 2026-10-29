@@ -31,6 +31,7 @@ export interface AppDeps {
   accounts?: AccountStore;
   oidc?: OidcClient;
   freeDailyLimit?: number;
+  firecrawlConfigured?: boolean;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -155,7 +156,7 @@ export function createApp(deps: AppDeps): Express {
       const account = deps.accounts.upsertUser(identity);
       const session = deps.accounts.createSession(account.id);
       res.setHeader('set-cookie', sessionCookie(session, deps.oidc.config.redirectUri));
-      res.redirect(302, '/');
+      res.redirect(302, '/app');
     } catch (err) {
       res.status(401).json({ error: publicAuthError(err) });
     }
@@ -201,6 +202,10 @@ export function createApp(deps: AppDeps): Express {
 
   app.get('/v1/stats', requireUser, (_req, res) => {
     res.json(metrics.snapshot());
+  });
+
+  app.get('/v1/providers', (_req, res) => {
+    res.json({ firecrawl: { configured: Boolean(deps.firecrawlConfigured) } });
   });
 
   app.get('/v1/me', requireUser, (_req, res) => {
@@ -347,7 +352,7 @@ export function createApp(deps: AppDeps): Express {
       return res.status(400).json({ error: parsed.error, code: 'invalid_url' });
     }
     if (!consumeQuotaOrReject(res)) return;
-    const request = parsed.value;
+    const request = { ...parsed.value, provider: 'local' as const };
     const mapper = deps.map;
     const job = enqueue(
       deps,
@@ -376,7 +381,7 @@ export function createApp(deps: AppDeps): Express {
       return res.status(400).json({ error: parsed.error, code: 'invalid_url' });
     }
     if (!consumeQuotaOrReject(res)) return;
-    const request = parsed.value;
+    const request = { ...parsed.value, provider: 'local' as const };
     const crawler = deps.crawl;
     const limit = request.limit ?? 5;
     const job = enqueue(
@@ -550,6 +555,9 @@ function parseAndValidateScrapeBody(body: unknown): ParseResult<ScrapeRequest> {
   }
   if (typeof record.onlyMainContent === 'boolean') request.onlyMainContent = record.onlyMainContent;
   if (record.js === true || record.js === false || record.js === 'auto') request.js = record.js;
+  if (record.provider === 'local' || record.provider === 'auto' || record.provider === 'firecrawl') {
+    request.provider = record.provider;
+  }
   if (typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)) request.timeoutMs = record.timeoutMs;
   if (typeof record.userAgent === 'string' && record.userAgent.trim()) request.userAgent = record.userAgent.trim();
   return { ok: true, value: request };

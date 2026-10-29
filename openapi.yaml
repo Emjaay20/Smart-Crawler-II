@@ -44,6 +44,12 @@ paths:
       responses:
         '200':
           description: Counters
+  /v1/providers:
+    get:
+      summary: Optional server-side provider availability (credentials are never exposed)
+      responses:
+        '200':
+          description: Provider configuration flags
   /v1/me:
     get:
       summary: Current API key identity and remaining daily quota
@@ -232,6 +238,11 @@ components:
           default: true
         js:
           description: auto | true | false
+        provider:
+          type: string
+          enum: [local, auto, firecrawl]
+          default: local
+          description: Single-page scrape provider. Firecrawl modes require an operator-configured server credential; map and crawl remain local.
         timeoutMs:
           type: integer
         userAgent:
