@@ -23,8 +23,6 @@ import {
   Download,
   Copy,
   Play,
-  CheckCircle,
-  Wifi,
   Activity,
   ChevronDown,
   Link2,
@@ -32,6 +30,11 @@ import {
   Clock,
   KeyRound,
   BookOpen,
+  ArrowRight,
+  Braces,
+  Github,
+  Globe2,
+  Network,
 } from 'lucide-react';
 
 const CHROME_UA =
@@ -237,60 +240,80 @@ export default function CrawlerInterface() {
     document.body.removeChild(link);
   };
 
+  const modeDetails: Record<
+    JobMode,
+    { title: string; description: string; shortcut: string; icon: typeof FileText }
+  > = {
+    scrape: {
+      title: 'Scrape',
+      description: 'One page into clean Markdown',
+      shortcut: 'S',
+      icon: FileText,
+    },
+    map: {
+      title: 'Map',
+      description: 'Discover a site’s useful links',
+      shortcut: 'M',
+      icon: Network,
+    },
+    crawl: {
+      title: 'Crawl',
+      description: 'Collect multiple pages as a dataset',
+      shortcut: 'C',
+      icon: Globe2,
+    },
+  };
+
   return (
-    <div className="min-h-dvh bg-[#090d16] text-slate-200 flex flex-col font-mono justify-between">
+    <div className="smartcrawl-ui min-h-dvh flex flex-col justify-between">
       {/* Top Bar */}
-      <header className="border-b border-slate-800/90 bg-slate-950/90 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 select-none sticky top-0 z-40 backdrop-blur">
-        <div className="flex items-center gap-3">
+      <header className="sc-header px-4 sm:px-6 flex flex-wrap items-center justify-between gap-3 select-none sticky top-0 z-40 backdrop-blur-xl">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <button
             type="button"
             onClick={() => switchView('workbench')}
-            className="flex items-center gap-2 text-sm font-bold tracking-tight text-white hover:opacity-90 transition-opacity"
+            className="sc-wordmark shrink-0 hover:opacity-70"
           >
-            <Terminal size={15} className="text-emerald-400" />
             <span>SmartCrawl</span>
           </button>
-          <span className="text-[11px] bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono">
-            v3.0
+          <span className="sc-kicker hidden sm:inline">
+            v3.0 — workbench
           </span>
 
-          {/* View Switcher Pills */}
-          <div className="flex items-center gap-1 bg-slate-900/90 border border-slate-800 p-0.5 rounded text-xs ml-1 sm:ml-3">
+          <nav className="hidden md:flex items-center gap-5 self-stretch" aria-label="Workspace navigation">
             <button
               type="button"
               onClick={() => switchView('workbench')}
-              className={`px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
-                mainView === 'workbench'
-                  ? 'bg-emerald-600 text-white font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`sc-nav-link ${mainView === 'workbench' ? 'sc-nav-link--active' : ''}`}
             >
-              <Terminal size={12} />
-              <span>Workbench</span>
+              Workbench
             </button>
             <button
               type="button"
               onClick={() => switchView('docs')}
-              className={`px-2.5 py-1 rounded transition-all flex items-center gap-1.5 ${
-                mainView === 'docs'
-                  ? 'bg-emerald-600 text-white font-medium shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`sc-nav-link ${mainView === 'docs' ? 'sc-nav-link--active' : ''}`}
             >
-              <BookOpen size={12} />
-              <span>Architecture & Trade-offs</span>
+              Architecture
             </button>
-          </div>
+          </nav>
         </div>
 
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-2 sm:gap-3 text-xs">
+          <a
+            href="https://github.com/Emjaay20/Smart-Crawler-II"
+            target="_blank"
+            rel="noreferrer"
+            className="hidden lg:inline-flex items-center gap-1 text-[12px] text-[var(--ink-2)] hover:text-[var(--ink)]"
+          >
+            <Github size={13} /> GitHub <ArrowRight size={12} />
+          </a>
           {account?.configured && account.authenticated && account.user ? (
             <>
-              <span className="hidden sm:inline text-slate-400">
+              <span className="hidden lg:inline text-[var(--ink-2)]">
                 {account.user.name || account.user.email || 'Signed in'}
               </span>
               {me?.key ? (
-                <span className="flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-0.5 rounded">
+                <span className="hidden sm:flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-1 rounded-[10px] font-code">
                   <KeyRound size={12} />
                   {me.key.remaining}/{me.key.dailyLimit} credits today
                 </span>
@@ -299,26 +322,25 @@ export default function CrawlerInterface() {
                   type="button"
                   onClick={handleCreateAccountKey}
                   disabled={creatingAccountKey}
-                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white px-2.5 py-1 rounded transition-colors"
+                  className="sc-button sc-button--compact disabled:opacity-60"
                 >
                   <KeyRound size={12} />
                   {creatingAccountKey ? 'Creating…' : 'Create API Key'}
                 </button>
               )}
-              <button type="button" onClick={() => void handleSignOut()} className="text-slate-400 hover:text-slate-200">
+              <button type="button" onClick={() => void handleSignOut()} className="hidden sm:inline text-[var(--ink-2)] hover:text-[var(--ink)]">
                 Sign out
               </button>
             </>
           ) : account?.configured ? (
             <a
               href={signInUrl()}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded transition-colors"
+              className="sc-button sc-button--compact"
             >
-              <KeyRound size={12} />
-              Start free
+              Start free <ArrowRight size={13} />
             </a>
           ) : me?.key ? (
-            <span className="flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-0.5 rounded">
+            <span className="hidden sm:flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/60 text-emerald-300 px-2.5 py-1 rounded-[10px] font-code">
               <KeyRound size={12} />
               {me.key.name} ({me.key.remaining}/{me.key.dailyLimit} left today)
             </span>
@@ -326,7 +348,7 @@ export default function CrawlerInterface() {
             <button
               type="button"
               onClick={() => setShowConfig(true)}
-              className="flex items-center gap-1.5 bg-amber-950/50 border border-amber-800/60 text-amber-300 px-2.5 py-0.5 rounded hover:bg-amber-900/40"
+              className="flex items-center gap-1.5 bg-[#fbf2e5] border border-[#e7cfae] text-[#8a542d] px-2.5 py-1 rounded-[10px]"
             >
               <KeyRound size={12} />
               API key required
@@ -336,25 +358,17 @@ export default function CrawlerInterface() {
               type="button"
               onClick={handleMintDemoKey}
               disabled={mintingKey}
-              className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 px-2.5 py-0.5 rounded transition-colors"
+              className="sc-button sc-button--compact"
               title="Mint a free 25/day sc_live_… key to test quota tracking"
             >
-              <KeyRound size={12} className="text-emerald-400" />
+              <KeyRound size={12} />
               {mintingKey ? 'Minting…' : 'Open Mode · Get Demo Key'}
             </button>
           )}
 
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <Wifi size={12} className={online ? 'text-emerald-400' : 'text-rose-500'} />
-            <span>{online === null ? 'CHECKING' : online ? 'ONLINE' : 'OFFLINE'}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <Activity
-              size={12}
-              className={status === 'crawling' ? 'text-emerald-400 animate-pulse' : 'text-slate-600'}
-            />
-            <span>{status === 'crawling' ? 'RUNNING' : 'IDLE'}</span>
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-code text-[var(--ink-2)]">
+            <span className={online ? 'sc-status-dot' : 'h-1.5 w-1.5 rounded-[3px] bg-[var(--clay)]'} />
+            <span>{online === null ? 'Checking' : online ? 'Online' : 'Offline'}</span>
           </div>
         </div>
       </header>
@@ -365,12 +379,12 @@ export default function CrawlerInterface() {
           <DocsView />
         </main>
       ) : (
-        <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 sm:px-6 sm:py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 min-h-0">
         {/* Left Column: Controls + Recent Jobs */}
         <section className="lg:col-span-4 flex flex-col gap-4">
-          <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 space-y-4">
+          <div className="sc-card p-5 sm:p-6 space-y-5">
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">Target URL</label>
+              <label className="sc-label block mb-2">Target URL</label>
               <div className="flex gap-2">
                 <input
                   type="url"
@@ -384,54 +398,63 @@ export default function CrawlerInterface() {
                   }}
                   disabled={status === 'crawling'}
                   placeholder="https://example.com"
-                  className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-xs focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="sc-input h-[52px] w-full px-3.5 text-[13px]"
                 />
               </div>
             </div>
 
-            {/* Mode Pills */}
-            <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded border border-slate-800 select-none">
+            <div>
+              <span className="sc-label block mb-2">Mode</span>
+              <div className="space-y-2 select-none">
               {(['scrape', 'map', 'crawl'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMode(m)}
-                  className={`py-1.5 text-xs rounded font-medium capitalize transition-colors ${
-                    mode === m
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {m}
-                </button>
+                (() => {
+                  const detail = modeDetails[m];
+                  const Icon = detail.icon;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      className={`sc-mode ${mode === m ? 'sc-mode--active' : ''}`}
+                    >
+                      <span className="sc-mode-icon"><Icon size={16} /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14px] font-medium">{detail.title}</span>
+                        <span className="block truncate text-[12px] text-[var(--ink-2)]">{detail.description}</span>
+                      </span>
+                      <span className="font-code text-[11px] text-[var(--ink-3)]">{detail.shortcut}</span>
+                    </button>
+                  );
+                })()
               ))}
+              </div>
             </div>
 
             <button
               type="button"
               onClick={() => handleRun()}
               disabled={status === 'crawling' || !url.trim()}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 px-4 rounded font-semibold text-xs flex items-center justify-center gap-2 transition-colors select-none"
+              className="sc-button w-full min-h-12 disabled:cursor-not-allowed select-none"
             >
               {status === 'crawling' ? (
                 <>
-                  <Activity className="animate-spin" size={14} /> Running {mode}…
+                  <Activity className="animate-spin" size={15} /> Running {mode}…
                 </>
               ) : (
                 <>
-                  <Play size={14} /> Run {mode}
+                  <Play size={14} fill="currentColor" /> Run {mode} <ArrowRight size={14} />
                 </>
               )}
             </button>
 
-            <div className="pt-2 border-t border-slate-800/80">
+            <div className="pt-2 border-t border-[var(--border)]">
               <button
                 type="button"
                 onClick={() => setShowConfig(!showConfig)}
-                className="w-full text-xs text-slate-400 hover:text-slate-200 flex items-center justify-between py-1 transition-colors select-none"
+                className="w-full text-[13px] text-[var(--ink-2)] hover:text-[var(--ink)] flex items-center justify-between py-1 select-none"
               >
                 <span className="flex items-center gap-1.5">
-                  <Settings size={12} /> Options & API Key
+                  <Settings size={14} /> Options & API key
                 </span>
                 <ChevronDown
                   size={13}
@@ -545,19 +568,21 @@ export default function CrawlerInterface() {
           </div>
 
           {/* Recent Jobs List */}
-          <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 flex-1 flex flex-col min-h-[220px]">
-            <div className="flex items-center justify-between text-xs text-slate-400 mb-3 select-none">
-              <span className="flex items-center gap-1.5 font-medium text-slate-300">
+          <div className="sc-card p-5 sm:p-6 flex-1 flex flex-col min-h-[220px]">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-4 select-none">
+              <span className="flex items-center gap-2 font-medium text-[var(--ink)]">
                 <Clock size={13} /> Recent Jobs
               </span>
-              <span className="text-[11px] text-slate-500">{recentJobs.length} stored</span>
+              <span className="font-code text-[11px] text-[var(--ink-3)]">{recentJobs.length} stored</span>
             </div>
 
             <div className="flex-1 overflow-auto space-y-1.5 custom-scrollbar pr-1">
               {recentJobs.length === 0 ? (
-                <p className="text-xs text-slate-600 italic py-4">
-                  No jobs recorded yet. Run scrape, map, or crawl above.
-                </p>
+                <div className="m-auto max-w-[220px] text-center py-6">
+                  <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-[10px] border border-[var(--border)] bg-[var(--paper-soft)] text-[var(--ink-2)]"><Clock size={17} /></div>
+                  <p className="font-display text-[19px] text-[var(--ink)]">Nothing here yet</p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-[var(--ink-2)]">Your recent scrapes, maps, and crawls will be saved here.</p>
+                </div>
               ) : (
                 recentJobs.map((job) => (
                   <button
@@ -597,21 +622,21 @@ export default function CrawlerInterface() {
         </section>
 
         {/* Right Column: Output Workbench */}
-        <section className="lg:col-span-8 bg-slate-900/70 border border-slate-800 rounded-lg flex flex-col min-h-[540px] overflow-hidden">
-          <div className="flex items-center border-b border-slate-800 bg-slate-950/70 px-2 select-none">
+        <section className="sc-card lg:col-span-8 flex flex-col min-h-[540px] lg:min-h-[620px] overflow-hidden">
+          <div className="flex items-center border-b border-[var(--border)] bg-[rgba(255,254,252,0.76)] px-2 sm:px-3 overflow-x-auto select-none">
             <button
               type="button"
               onClick={() => setActiveTab('markdown')}
               disabled={!activeMarkdown}
-              className={`px-3.5 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors disabled:opacity-30 ${
+              className={`sc-tab shrink-0 px-3 sm:px-3.5 py-3.5 text-[13px] font-medium flex items-center gap-1.5 disabled:opacity-30 ${
                 activeTab === 'markdown'
-                  ? 'text-white border-emerald-500'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'sc-tab--active'
+                  : ''
               }`}
             >
               <FileText size={13} /> Markdown
               {crawlPages.length > 0 && (
-                <span className="text-[10px] bg-slate-800 px-1.5 rounded text-emerald-300">
+                <span className="font-code text-[11px] text-[var(--ink-3)]">
                   {crawlPages.length}
                 </span>
               )}
@@ -621,15 +646,15 @@ export default function CrawlerInterface() {
               type="button"
               onClick={() => setActiveTab('links')}
               disabled={discoveredLinks.length === 0}
-              className={`px-3.5 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors disabled:opacity-30 ${
+              className={`sc-tab shrink-0 px-3 sm:px-3.5 py-3.5 text-[13px] font-medium flex items-center gap-1.5 disabled:opacity-30 ${
                 activeTab === 'links'
-                  ? 'text-white border-emerald-500'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'sc-tab--active'
+                  : ''
               }`}
             >
               <Link2 size={13} /> Links
               {discoveredLinks.length > 0 && (
-                <span className="text-[10px] bg-slate-800 px-1.5 rounded text-emerald-300">
+                <span className="font-code text-[11px] text-[var(--ink-3)]">
                   {discoveredLinks.length}
                 </span>
               )}
@@ -639,34 +664,34 @@ export default function CrawlerInterface() {
               type="button"
               onClick={() => setActiveTab('data')}
               disabled={data == null}
-              className={`px-3.5 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors disabled:opacity-30 ${
+              className={`sc-tab shrink-0 px-3 sm:px-3.5 py-3.5 text-[13px] font-medium flex items-center gap-1.5 disabled:opacity-30 ${
                 activeTab === 'data'
-                  ? 'text-white border-emerald-500'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'sc-tab--active'
+                  : ''
               }`}
             >
-              <CheckCircle size={13} /> JSON
+              <Braces size={13} /> JSON
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('console')}
-              className={`px-3.5 py-2.5 text-xs font-medium flex items-center gap-1.5 border-b-2 transition-colors ${
+              className={`sc-tab shrink-0 px-3 sm:px-3.5 py-3.5 text-[13px] font-medium flex items-center gap-1.5 ${
                 activeTab === 'console'
-                  ? 'text-white border-emerald-500'
-                  : 'text-slate-400 border-transparent hover:text-slate-200'
+                  ? 'sc-tab--active'
+                  : ''
               }`}
             >
-              <Terminal size={13} /> Logs ({logs.length})
+              <Terminal size={13} /> Logs <span className="font-code text-[11px] text-[var(--ink-3)]">({logs.length})</span>
             </button>
 
-            <div className="ml-auto flex items-center gap-1.5 pr-2">
+            <div className="ml-auto flex items-center gap-1.5 pr-2 shrink-0">
               {data != null && (
                 <>
                   <button
                     type="button"
                     onClick={copyContent}
-                    className="px-2 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 rounded text-slate-300 flex items-center gap-1"
+                    className="px-2.5 py-1.5 text-[11px] border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--paper-soft)] rounded-[8px] text-[var(--ink-2)] flex items-center gap-1"
                     title="Copy current view"
                   >
                     <Copy size={12} /> {copied ? 'Copied' : 'Copy'}
@@ -674,7 +699,7 @@ export default function CrawlerInterface() {
                   <button
                     type="button"
                     onClick={handleDownload}
-                    className="px-2 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 rounded text-slate-300 flex items-center gap-1"
+                    className="px-2.5 py-1.5 text-[11px] border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--paper-soft)] rounded-[8px] text-[var(--ink-2)] flex items-center gap-1"
                     title="Download file"
                   >
                     <Download size={12} /> Export
@@ -686,17 +711,17 @@ export default function CrawlerInterface() {
 
           {/* Crawl Multi-Page Selector Bar */}
           {activeTab === 'markdown' && crawlPages.length > 1 && (
-            <div className="border-b border-slate-800 bg-slate-950/40 px-4 py-2 flex items-center gap-2 overflow-x-auto custom-scrollbar select-none">
-              <span className="text-[11px] text-slate-400 shrink-0">Pages:</span>
+            <div className="border-b border-[var(--border)] bg-[var(--paper-soft)] px-4 py-2 flex items-center gap-2 overflow-x-auto custom-scrollbar select-none">
+              <span className="font-code text-[11px] text-[var(--ink-2)] shrink-0">Pages:</span>
               {crawlPages.map((p, idx) => (
                 <button
                   key={p.url}
                   type="button"
                   onClick={() => setSelectedPageIdx(idx)}
-                  className={`px-2.5 py-1 rounded text-xs truncate max-w-[220px] border transition-colors ${
+                  className={`px-2.5 py-1 rounded-[8px] text-xs truncate max-w-[220px] border transition-colors ${
                     selectedPageIdx === idx
-                      ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                      ? 'bg-[var(--surface)] border-[var(--ink)] text-[var(--ink)]'
+                      : 'bg-transparent border-[var(--border)] text-[var(--ink-2)] hover:text-[var(--ink)]'
                   }`}
                 >
                   {idx + 1}. {p.title || p.url}
@@ -706,24 +731,31 @@ export default function CrawlerInterface() {
           )}
 
           {/* Output Body */}
-          <div className="flex-1 overflow-auto p-4 custom-scrollbar">
+          <div className="flex-1 overflow-auto p-5 sm:p-7 custom-scrollbar">
             {activeTab === 'console' && (
-              <div className="text-xs space-y-1.5">
+              <div className="h-full text-xs space-y-1.5">
                 {logs.length === 0 && (
-                  <p className="text-slate-500">
-                    Ready. Jobs persist in SQLite; select scrape, map, or crawl and click Run.
-                  </p>
+                  <div className="mx-auto flex min-h-[360px] max-w-md flex-col justify-center text-center">
+                    <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-[12px] border border-[var(--border)] bg-[var(--paper-soft)] text-[var(--ink)]"><Globe2 size={21} /></div>
+                    <h1 className="sc-empty-title">Ready to crawl</h1>
+                    <p className="mx-auto mt-3 max-w-sm text-[15px] leading-relaxed text-[var(--ink-2)]">Enter a URL, choose a mode, and SmartCrawl will fetch, render when necessary, and return content you can use.</p>
+                    <div className="mt-7 space-y-2 text-left">
+                      <button type="button" onClick={() => { setUrl('https://example.com'); setMode('scrape'); }} className="sc-suggestion"><ArrowRight size={14} /><span className="font-medium text-[var(--ink)]">Try a single page</span><span className="ml-auto truncate font-code text-[11px]">example.com</span></button>
+                      <button type="button" onClick={() => switchView('docs')} className="sc-suggestion"><BookOpen size={14} /><span className="font-medium text-[var(--ink)]">See how it works</span><span className="ml-auto font-code text-[11px]">Architecture</span></button>
+                      <button type="button" onClick={() => setShowConfig(true)} className="sc-suggestion"><KeyRound size={14} /><span className="font-medium text-[var(--ink)]">Connect an API key</span><span className="ml-auto font-code text-[11px]">Optional</span></button>
+                    </div>
+                  </div>
                 )}
                 {logs.map((log, i) => (
-                  <div key={i} className="flex gap-3">
-                    <span className="text-slate-500 shrink-0">[{log.time.slice(11, 19)}]</span>
+                  <div key={i} className="flex gap-3 font-code text-[12px]">
+                    <span className="text-[var(--ink-3)] shrink-0">[{log.time.slice(11, 19)}]</span>
                     <span
                       className={
                         log.level === 'error'
                           ? 'text-rose-400'
                           : log.level === 'success'
                             ? 'text-emerald-400'
-                            : 'text-slate-300'
+                            : 'text-[var(--ink)]'
                       }
                     >
                       {log.msg}

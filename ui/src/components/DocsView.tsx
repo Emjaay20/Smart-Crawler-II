@@ -17,7 +17,7 @@ import {
 
 export const DocsView: React.FC = () => {
   return (
-    <article className="max-w-5xl mx-auto w-full px-4 sm:px-6 py-8 space-y-12 text-slate-300">
+    <article className="docs-theme max-w-5xl mx-auto w-full px-4 sm:px-6 py-10 space-y-12 text-slate-300">
       {/* Hero Header */}
       <header className="border-b border-slate-800 pb-8 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -28,7 +28,7 @@ export const DocsView: React.FC = () => {
             Node.js 22 + SQLite + TypeScript
           </span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+        <h1 className="font-display text-3xl sm:text-4xl font-medium text-white tracking-tight">
           SmartCrawl Engineering & Architecture Deep Dive
         </h1>
         <p className="text-sm sm:text-base text-slate-400 max-w-3xl leading-relaxed">
