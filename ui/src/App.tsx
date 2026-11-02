@@ -109,6 +109,10 @@ export default function CrawlerInterface() {
   const [recentJobs, setRecentJobs] = useState<JobSummaryItem[]>([]);
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const accountIsConfigured = account?.configured === true;
+  const isSignedIn = accountIsConfigured && account.authenticated && Boolean(account.user);
+  const needsSignIn = accountIsConfigured && !isSignedIn;
+  const needsApiKey = me?.authRequired === true && !apiKey.trim();
 
   useEffect(() => {
     const onLocationChange = () => setMainView(viewFromLocation());
@@ -207,6 +211,15 @@ export default function CrawlerInterface() {
   }, [refreshTelemetry]);
 
   const handleRun = (targetUrl = url, targetMode = mode) => {
+    if (needsSignIn) {
+      window.location.assign(signInUrl());
+      return;
+    }
+    if (needsApiKey) {
+      if (isSignedIn) void handleCreateAccountKey();
+      else setShowConfig(true);
+      return;
+    }
     const trimmed = targetUrl.trim();
     if (!trimmed) return;
     const excludePaths = excludePathsInput
@@ -450,15 +463,35 @@ export default function CrawlerInterface() {
               </div>
             </div>
 
+            {needsSignIn && (
+              <p className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-2)]">
+                Sign in to create a personal API key and run your first scrape.
+              </p>
+            )}
+
+            {isSignedIn && needsApiKey && (
+              <p className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-2)]">
+                Create an API key to begin. It stays in this browser and is only shown once.
+              </p>
+            )}
+
             <button
               type="button"
               onClick={() => handleRun()}
-              disabled={status === 'crawling' || !url.trim()}
+              disabled={status === 'crawling' || !url.trim() || (isSignedIn && needsApiKey && creatingAccountKey)}
               className="sc-button w-full min-h-12 disabled:cursor-not-allowed select-none"
             >
               {status === 'crawling' ? (
                 <>
                   <Activity className="animate-spin" size={15} /> Running {mode}…
+                </>
+              ) : needsSignIn ? (
+                <>
+                  <KeyRound size={14} /> Sign in to run a scrape <ArrowRight size={14} />
+                </>
+              ) : isSignedIn && needsApiKey ? (
+                <>
+                  <KeyRound size={14} /> {creatingAccountKey ? 'Creating API key…' : 'Create API key to run'} <ArrowRight size={14} />
                 </>
               ) : (
                 <>
