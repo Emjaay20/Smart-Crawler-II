@@ -80,4 +80,18 @@ describe('extractFromHtml', () => {
     expect(result.links).toBeUndefined();
     expect(result.metadata.title).toBe('How to roast yams');
   });
+
+  it('produces deterministic SHA-256 contentHash, token estimates, and heading-aware chunks', () => {
+    const result = extractFromHtml(articleHtml, 'https://food.example/blog/yams', {
+      onlyMainContent: true,
+      formats: ['markdown', 'metadata'],
+    });
+
+    expect(result.metadata.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(result.metadata.wordCount).toBeGreaterThan(10);
+    expect(result.metadata.estimatedTokens).toBeGreaterThan(10);
+    expect(Array.isArray(result.chunks)).toBe(true);
+    expect(result.chunks!.length).toBeGreaterThan(0);
+    expect(result.chunks![0]?.text).toMatch(/Peel the yams/);
+  });
 });

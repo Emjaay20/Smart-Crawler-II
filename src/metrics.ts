@@ -5,6 +5,20 @@ export interface ScrapeObservation {
   engine?: 'http' | 'playwright' | 'firecrawl';
   durationMs: number;
   errorCode?: ErrorCode;
+  tokens?: number;
+  url?: string;
+  jobId?: string;
+}
+
+export interface TelemetryEvent {
+  ts: string;
+  event: 'scrape.completed' | 'scrape.failed' | 'scrape.retry';
+  jobId?: string;
+  url?: string;
+  engine?: 'http' | 'playwright' | 'firecrawl';
+  durationMs?: number;
+  errorCode?: ErrorCode;
+  tokens?: number;
 }
 
 export interface MetricsSnapshot {
@@ -18,14 +32,20 @@ export interface MetricsSnapshot {
   engineFirecrawl: number;
   durationCount: number;
   durationAvgMs: number;
+  durationP50Ms: number;
   durationP95Ms: number;
+  durationP99Ms: number;
   mapLinks: number;
   crawlPages: number;
+  retriesTotal: number;
+  tokensExtractedTotal: number;
   activeWorkers: number;
   queueDepth: number;
+  recentEvents: TelemetryEvent[];
 }
 
 const RING = 200;
+const EVENT_RING = 50;
 
 export class Metrics {
   private scrapeCompleted = 0;
@@ -38,13 +58,19 @@ export class Metrics {
   private durations: number[] = [];
   private mapLinks = 0;
   private crawlPages = 0;
+  private retriesTotal = 0;
+  private tokensExtractedTotal = 0;
   private activeWorkers = 0;
   private queueDepth = 0;
+  private recentEvents: TelemetryEvent[] = [];
 
   recordScrape(obs: ScrapeObservation): void {
     if (obs.ok) {
       this.scrapeCompleted += 1;
       this.consecutiveFailures = 0;
+      if (obs.tokens && obs.tokens > 0) {
+        this.tokensExtractedTotal += obs.tokens;
+      }
     } else {
       this.scrapeFailed += 1;
       this.consecutiveFailures += 1;
@@ -56,14 +82,38 @@ export class Metrics {
     if (obs.engine === 'firecrawl') this.engineFirecrawl += 1;
     this.durations.push(obs.durationMs);
     if (this.durations.length > RING) this.durations.shift();
+
+    this.pushEvent({
+      ts: new Date().toISOString(),
+      event: obs.ok ? 'scrape.completed' : 'scrape.failed',
+      ...(obs.jobId ? { jobId: obs.jobId } : {}),
+      ...(obs.url ? { url: obs.url } : {}),
+      ...(obs.engine ? { engine: obs.engine } : {}),
+      durationMs: obs.durationMs,
+      ...(obs.errorCode ? { errorCode: obs.errorCode } : {}),
+      ...(obs.tokens ? { tokens: obs.tokens } : {}),
+    });
+  }
+
+  recordRetry(url?: string, jobId?: string): void {
+    this.retriesTotal += 1;
+    this.pushEvent({
+      ts: new Date().toISOString(),
+      event: 'scrape.retry',
+      ...(jobId ? { jobId } : {}),
+      ...(url ? { url } : {}),
+    });
   }
 
   recordMap(linkCount: number): void {
     this.mapLinks += linkCount;
   }
 
-  recordCrawl(pageCount: number): void {
+  recordCrawl(pageCount: number, tokens = 0): void {
     this.crawlPages += pageCount;
+    if (tokens > 0) {
+      this.tokensExtractedTotal += tokens;
+    }
   }
 
   setWorkerState(activeWorkers: number, queueDepth: number): void {
@@ -86,11 +136,16 @@ export class Metrics {
       engineFirecrawl: this.engineFirecrawl,
       durationCount,
       durationAvgMs: durationCount ? Math.round(this.durations.reduce((sum, value) => sum + value, 0) / durationCount) : 0,
+      durationP50Ms: percentile(this.durations, 0.5),
       durationP95Ms: percentile(this.durations, 0.95),
+      durationP99Ms: percentile(this.durations, 0.99),
       mapLinks: this.mapLinks,
       crawlPages: this.crawlPages,
+      retriesTotal: this.retriesTotal,
+      tokensExtractedTotal: this.tokensExtractedTotal,
       activeWorkers: this.activeWorkers,
       queueDepth: this.queueDepth,
+      recentEvents: [...this.recentEvents],
     };
   }
 
@@ -126,9 +181,21 @@ export class Metrics {
       `# HELP scrape_duration_ms_avg Average scrape duration`,
       `# TYPE scrape_duration_ms_avg gauge`,
       `scrape_duration_ms_avg ${s.durationAvgMs}`,
+      `# HELP scrape_duration_ms_p50 Median scrape duration`,
+      `# TYPE scrape_duration_ms_p50 gauge`,
+      `scrape_duration_ms_p50 ${s.durationP50Ms}`,
       `# HELP scrape_duration_ms_p95 95th percentile scrape duration`,
       `# TYPE scrape_duration_ms_p95 gauge`,
       `scrape_duration_ms_p95 ${s.durationP95Ms}`,
+      `# HELP scrape_duration_ms_p99 99th percentile scrape duration`,
+      `# TYPE scrape_duration_ms_p99 gauge`,
+      `scrape_duration_ms_p99 ${s.durationP99Ms}`,
+      `# HELP scrape_retries_total Transient HTTP retries executed`,
+      `# TYPE scrape_retries_total counter`,
+      `scrape_retries_total ${s.retriesTotal}`,
+      `# HELP scrape_tokens_extracted_total Estimated LLM tokens extracted`,
+      `# TYPE scrape_tokens_extracted_total counter`,
+      `scrape_tokens_extracted_total ${s.tokensExtractedTotal}`,
       `# HELP map_links_total Links discovered by map`,
       `# TYPE map_links_total counter`,
       `map_links_total ${s.mapLinks}`,
@@ -145,6 +212,16 @@ export class Metrics {
     );
 
     return lines.join('\n');
+  }
+
+  private pushEvent(ev: TelemetryEvent): void {
+    this.recentEvents.unshift(ev);
+    if (this.recentEvents.length > EVENT_RING) {
+      this.recentEvents.pop();
+    }
+    if (process.env.SMARTCRAWL_LOG_FORMAT === 'json') {
+      console.log(JSON.stringify({ service: 'smartcrawl', ...ev }));
+    }
   }
 }
 

@@ -1,5 +1,13 @@
 export type Format = 'markdown' | 'links' | 'metadata' | 'html';
 
+export interface ContentChunk {
+  index: number;
+  heading?: string;
+  text: string;
+  charCount: number;
+  estimatedTokens: number;
+}
+
 export interface ExtractOptions {
   onlyMainContent: boolean;
   formats: Format[];
@@ -8,12 +16,16 @@ export interface ExtractOptions {
 export interface ExtractMetadata {
   title?: string;
   description?: string;
+  contentHash?: string;
+  wordCount?: number;
+  estimatedTokens?: number;
 }
 
 export interface ExtractResult {
   markdown?: string;
   html?: string;
   links?: string[];
+  chunks?: ContentChunk[];
   metadata: ExtractMetadata;
   warnings: string[];
   looksLikeSpa: boolean;
@@ -28,6 +40,8 @@ export interface ScrapeRequest {
   provider?: 'local' | 'auto' | 'firecrawl';
   timeoutMs?: number;
   userAgent?: string;
+  maxRetries?: number;
+  proxy?: string;
 }
 
 export interface ScrapeResult {
@@ -35,6 +49,7 @@ export interface ScrapeResult {
   markdown?: string;
   html?: string;
   links?: string[];
+  chunks?: ContentChunk[];
   metadata: ExtractMetadata & {
     statusCode: number;
     sourceUrl: string;
@@ -42,6 +57,7 @@ export interface ScrapeResult {
     redirectChain: string[];
     engine: 'http' | 'playwright' | 'firecrawl';
     charset?: string;
+    proxy?: boolean;
   };
   warnings: string[];
   timing: { ttfbMs: number; totalMs: number };

@@ -1,0 +1,49 @@
+name: Production Smoke & Slack Operational Digest
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Target SmartCrawl deployment URL'
+        required: false
+        default: 'https://smart-crawler.aetherhost.com.ng'
+
+jobs:
+  prod-smoke-and-report:
+    name: Synthetic Production Scrape & Slack Digest
+    runs-on: ubuntu-latest
+    env:
+      SMARTCRAWL_URL: ${{ github.event.inputs.base_url || 'https://smart-crawler.aetherhost.com.ng' }}
+      SMARTCRAWL_API_KEY: ${{ secrets.SMARTCRAWL_API_KEY }}
+      SMARTCRAWL_ADMIN_TOKEN: ${{ secrets.SMARTCRAWL_ADMIN_TOKEN }}
+      SMARTCRAWL_SLACK_WEBHOOK_URL: ${{ secrets.SMARTCRAWL_SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install & build CLI
+        run: npm ci && npx tsc -p tsconfig.json
+
+      - name: Verify production /health, /ready, and /v1/providers
+        run: |
+          curl -fsS "$SMARTCRAWL_URL/health" | grep '"status":"ok"'
+          curl -fsS "$SMARTCRAWL_URL/ready" | grep '"status":"ready"'
+          curl -fsS "$SMARTCRAWL_URL/v1/providers"
+
+      - name: Run synthetic scrape & dispatch operational digest
+        run: |
+          if [ -n "$SMARTCRAWL_API_KEY" ]; then
+            node dist/cli.js --base "$SMARTCRAWL_URL" --key "$SMARTCRAWL_API_KEY" scrape https://example.com
+            node dist/cli.js --base "$SMARTCRAWL_URL" --key "$SMARTCRAWL_API_KEY" report
+          fi
+          if [ -n "$SMARTCRAWL_ADMIN_TOKEN" ]; then
+            node dist/cli.js --base "$SMARTCRAWL_URL" --key "$SMARTCRAWL_ADMIN_TOKEN" report --slack "$SMARTCRAWL_SLACK_WEBHOOK_URL"
+          fi

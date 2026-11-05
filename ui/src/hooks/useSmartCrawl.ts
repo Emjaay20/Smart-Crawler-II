@@ -28,18 +28,57 @@ export interface ScrapeOptions {
   excludePaths?: string[];
   provider?: 'local' | 'auto' | 'firecrawl';
   apiKey?: string;
+  proxy?: string;
+  crawlDelayMs?: number;
+}
+
+export interface ContentChunk {
+  index: number;
+  heading?: string;
+  text: string;
+  charCount: number;
+  estimatedTokens: number;
+}
+
+export interface TelemetryEvent {
+  ts: string;
+  event: 'scrape.completed' | 'scrape.failed' | 'scrape.retry';
+  jobId?: string;
+  url?: string;
+  engine?: 'http' | 'playwright' | 'firecrawl';
+  durationMs?: number;
+  errorCode?: string;
+  tokens?: number;
 }
 
 export interface OpsStats {
   scrapeCompleted: number;
   scrapeFailed: number;
+  errorRate: number;
+  consecutiveFailures: number;
+  errorsByCode: Record<string, number>;
   engineHttp: number;
   enginePlaywright: number;
   engineFirecrawl: number;
+  durationCount: number;
   durationAvgMs: number;
+  durationP50Ms: number;
   durationP95Ms: number;
+  durationP99Ms: number;
   mapLinks: number;
   crawlPages: number;
+  retriesTotal: number;
+  tokensExtractedTotal: number;
+  activeWorkers: number;
+  queueDepth: number;
+  recentEvents?: TelemetryEvent[];
+}
+
+export interface OperationalReport {
+  generatedAt: string;
+  status: 'healthy' | 'degraded' | 'critical';
+  summary: string;
+  metrics: OpsStats;
 }
 
 export interface MeInfo {
@@ -93,6 +132,7 @@ export interface AccountKey {
 
 export interface ProviderStatus {
   firecrawl: { configured: boolean };
+  proxy?: { configured: boolean };
 }
 
 const apiBase = () => import.meta.env.VITE_API_URL ?? '';
@@ -169,6 +209,8 @@ export const useSmartCrawl = () => {
           limit: options.limit,
           includePaths: options.includePaths?.length ? options.includePaths : undefined,
           excludePaths: options.excludePaths?.length ? options.excludePaths : undefined,
+          proxy: options.proxy?.trim() || undefined,
+          crawlDelayMs: options.crawlDelayMs,
           formats: ['markdown', 'links', 'metadata', 'html'],
           onlyMainContent: true,
         }),
@@ -286,7 +328,17 @@ export async function fetchAccountSession(): Promise<AccountSession | null> {
   }
 }
 
-export async function createAccountKey(name = 'default'): Promise<{ key: string; dailyLimit: number } | null> {
+export async function fetchAccountDetails(): Promise<{ user: AccountUser; apiKeys: AccountKey[] } | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/account`, { credentials: 'include' });
+    if (!res.ok) return null;
+    return await res.json() as { user: AccountUser; apiKeys: AccountKey[] };
+  } catch {
+    return null;
+  }
+}
+
+export async function createAccountKey(name = 'default'): Promise<{ id: string; name: string; key: string; prefix: string; dailyLimit: number } | null> {
   try {
     const res = await fetch(`${apiBase()}/v1/account/keys`, {
       method: 'POST',
@@ -295,7 +347,39 @@ export async function createAccountKey(name = 'default'): Promise<{ key: string;
       body: JSON.stringify({ name }),
     });
     if (!res.ok) return null;
-    return await res.json() as { key: string; dailyLimit: number };
+    return await res.json() as { id: string; name: string; key: string; prefix: string; dailyLimit: number };
+  } catch {
+    return null;
+  }
+}
+
+export async function revokeAccountKey(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/account/keys/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchOperationalReport(apiKey?: string): Promise<OperationalReport | null> {
+  try {
+    const res = await fetch(`${apiBase()}/v1/report`, { headers: authHeaders(apiKey) });
+    if (!res.ok) return null;
+    return await res.json() as OperationalReport;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchPrometheusMetrics(apiKey?: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${apiBase()}/metrics`, { headers: authHeaders(apiKey) });
+    if (!res.ok) return null;
+    return await res.text();
   } catch {
     return null;
   }

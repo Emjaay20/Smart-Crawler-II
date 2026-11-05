@@ -96,6 +96,21 @@ export class SmartCrawl {
     return this.request('GET', `/v1/jobs/${jobId}`);
   }
 
+  async exportJsonl(jobId: string): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const res = await this.fetchImpl(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/export.jsonl`, {
+      method: 'GET',
+      headers,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const parsed = text ? (jsonParse(text) as { error?: string; code?: string }) : {};
+      throw new SmartCrawlError(res.status, parsed.error || res.statusText, parsed.code);
+    }
+    return text;
+  }
+
   async listJobs(limit = 20): Promise<{ jobs: JobSummary[] }> {
     return this.request('GET', `/v1/jobs?limit=${encodeURIComponent(String(limit))}`);
   }

@@ -29,12 +29,18 @@ describe('Metrics', () => {
 
   it('renders prometheus text with error codes and worker state gauges', () => {
     const metrics = new Metrics();
-    metrics.recordScrape({ ok: true, engine: 'http', durationMs: 10 });
-    metrics.recordScrape({ ok: true, engine: 'firecrawl', durationMs: 11 });
+    metrics.recordScrape({ ok: true, engine: 'http', durationMs: 10, tokens: 120, url: 'https://example.com' });
+    metrics.recordScrape({ ok: true, engine: 'firecrawl', durationMs: 11, tokens: 80, url: 'https://example.com/2' });
     metrics.recordScrape({ ok: false, durationMs: 25, errorCode: 'http_5xx' });
+    metrics.recordRetry('https://example.com/2');
     metrics.recordMap(4);
-    metrics.recordCrawl(3);
+    metrics.recordCrawl(3, 300);
     metrics.setWorkerState(2, 5);
+
+    const snap = metrics.snapshot();
+    expect(snap.tokensExtractedTotal).toBe(500);
+    expect(snap.retriesTotal).toBe(1);
+    expect(snap.recentEvents.length).toBeGreaterThanOrEqual(4);
 
     const text = metrics.renderPrometheus();
     expect(text).toMatch(/scrape_jobs_total\{status="completed"\} 2/);
@@ -43,6 +49,8 @@ describe('Metrics', () => {
     expect(text).toMatch(/scrape_consecutive_failures 1/);
     expect(text).toMatch(/scrape_engine_total\{engine="http"\} 1/);
     expect(text).toMatch(/scrape_engine_total\{engine="firecrawl"\} 1/);
+    expect(text).toMatch(/scrape_retries_total 1/);
+    expect(text).toMatch(/scrape_tokens_extracted_total 500/);
     expect(text).toMatch(/map_links_total 4/);
     expect(text).toMatch(/crawl_pages_total 3/);
     expect(text).toMatch(/worker_active_jobs 2/);

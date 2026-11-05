@@ -1,5 +1,7 @@
 import { scrape, type ScrapeDeps } from './scrape.js';
+import { DomainPolitenessLimiter } from './circuit.js';
 import { isAllowedPath } from './paths.js';
+import type { ContentChunk } from './types.js';
 import { canonicalizeUrl } from './url.js';
 
 export const DEFAULT_MAP_LIMIT = 50;
@@ -15,6 +17,8 @@ export interface DiscoverRequest {
   timeoutMs?: number;
   userAgent?: string;
   js?: boolean | 'auto';
+  crawlDelayMs?: number;
+  proxy?: string;
 }
 
 export interface MapResult {
@@ -28,6 +32,11 @@ export interface CrawledPage {
   title?: string;
   markdown?: string;
   statusCode: number;
+  engine?: 'http' | 'playwright' | 'firecrawl';
+  contentHash?: string;
+  wordCount?: number;
+  estimatedTokens?: number;
+  chunks?: ContentChunk[];
 }
 
 export interface CrawlResult {
@@ -37,6 +46,7 @@ export interface CrawlResult {
 
 export interface CrawlDeps extends ScrapeDeps {
   onPage?: (page: CrawledPage, index: number, limit: number) => void;
+  politenessLimiter?: DomainPolitenessLimiter;
 }
 
 export async function mapSite(request: DiscoverRequest, deps: ScrapeDeps = {}): Promise<MapResult> {
@@ -73,6 +83,9 @@ export async function mapSite(request: DiscoverRequest, deps: ScrapeDeps = {}): 
 export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}): Promise<CrawlResult> {
   const seed = canonicalizeUrl(request.url);
   const limit = clamp(request.limit ?? DEFAULT_CRAWL_LIMIT, 1, MAX_CRAWL_LIMIT);
+  const limiter = deps.politenessLimiter ?? new DomainPolitenessLimiter();
+  const crawlDelayMs =
+    typeof request.crawlDelayMs === 'number' && request.crawlDelayMs >= 0 ? request.crawlDelayMs : 250;
   const queue: string[] = [seed];
   const seen = new Set<string>();
   const pages: CrawledPage[] = [];
@@ -85,6 +98,10 @@ export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}):
     }
     seen.add(url);
 
+    if (pages.length > 0) {
+      await limiter.acquire(url, crawlDelayMs, 100);
+    }
+
     try {
       const scraped = await scrape({
         url,
@@ -93,12 +110,18 @@ export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}):
         js: request.js ?? false,
         timeoutMs: request.timeoutMs,
         userAgent: request.userAgent,
+        proxy: request.proxy,
       }, deps);
       const page: CrawledPage = {
         url: scraped.metadata.finalUrl || url,
         title: scraped.metadata.title,
         markdown: scraped.markdown,
         statusCode: scraped.metadata.statusCode,
+        engine: scraped.metadata.engine,
+        ...(scraped.metadata.contentHash ? { contentHash: scraped.metadata.contentHash } : {}),
+        ...(scraped.metadata.wordCount !== undefined ? { wordCount: scraped.metadata.wordCount } : {}),
+        ...(scraped.metadata.estimatedTokens !== undefined ? { estimatedTokens: scraped.metadata.estimatedTokens } : {}),
+        ...(scraped.chunks ? { chunks: scraped.chunks } : {}),
       };
       pages.push(page);
       deps.onPage?.(page, pages.length, limit);

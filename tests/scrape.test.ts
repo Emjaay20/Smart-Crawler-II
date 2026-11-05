@@ -183,4 +183,46 @@ describe('scrape', () => {
       scrape({ url: 'https://food.example/redirect' }, { fetch: redirectingFetch }),
     ).rejects.toMatchObject({ code: 'invalid_url' });
   });
+
+  it('caches robots.txt per origin across multiple scrapes and retries transient 429/503 responses', async () => {
+    let robotsHits = 0;
+    let pageAttempts = 0;
+    const retries: Array<{ attempt: number; statusCode: number }> = [];
+
+    const mockFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/robots.txt')) {
+        robotsHits += 1;
+        return new Response('User-agent: *\nAllow: /\n', { status: 200 });
+      }
+      pageAttempts += 1;
+      if (pageAttempts === 1) {
+        return new Response('rate limited', {
+          status: 429,
+          headers: { 'retry-after': '0.01' },
+        });
+      }
+      return new Response(articleHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }) as typeof fetch;
+
+    const first = await scrape(
+      { url: 'https://food.example/blog/1', maxRetries: 2 },
+      {
+        fetch: mockFetch,
+        onRetry: (attempt, statusCode) => retries.push({ attempt, statusCode }),
+      },
+    );
+    const second = await scrape(
+      { url: 'https://food.example/blog/2' },
+      { fetch: mockFetch },
+    );
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(robotsHits).toBe(1);
+    expect(retries).toEqual([{ attempt: 1, statusCode: 429 }]);
+  });
 });

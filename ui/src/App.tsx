@@ -3,6 +3,8 @@ import {
   fetchMe,
   fetchProviderStatus,
   fetchAccountSession,
+  fetchAccountDetails,
+  revokeAccountKey,
   fetchOpsStats,
   fetchRecentJobs,
   mintDemoKey,
@@ -10,6 +12,8 @@ import {
   signInUrl,
   signOut,
   useSmartCrawl,
+  type AccountKey,
+  type ContentChunk,
   type JobMode,
   type JobSummaryItem,
   type MeInfo,
@@ -19,6 +23,7 @@ import {
 import { DocsView } from './components/DocsView';
 import { Footer } from './components/Footer';
 import { LandingPage } from './components/LandingPage';
+import { ObservabilityView } from './components/ObservabilityView';
 import {
   Terminal,
   Settings,
@@ -37,6 +42,9 @@ import {
   Github,
   Globe2,
   Network,
+  Layers,
+  Flame,
+  Trash2,
 } from 'lucide-react';
 
 const CHROME_UA =
@@ -46,18 +54,24 @@ const GOOGLEBOT_UA =
 
 type EngineMode = 'auto' | 'http' | 'playwright';
 type ProviderMode = 'local' | 'auto' | 'firecrawl';
-type MainView = 'landing' | 'workbench' | 'docs';
+type MainView = 'landing' | 'workbench' | 'ops' | 'docs';
 
 interface CrawledPageItem {
   url: string;
   title?: string;
   markdown?: string;
   statusCode: number;
+  engine?: string;
+  contentHash?: string;
+  wordCount?: number;
+  estimatedTokens?: number;
+  chunks?: ContentChunk[];
 }
 
 interface ScrapePayload {
   markdown?: string;
   links?: string[];
+  chunks?: ContentChunk[];
   pages?: CrawledPageItem[];
   sourceUrl?: string;
   metadata?: {
@@ -66,6 +80,9 @@ interface ScrapePayload {
     engine?: string;
     statusCode?: number;
     finalUrl?: string;
+    contentHash?: string;
+    wordCount?: number;
+    estimatedTokens?: number;
   };
   timing?: { ttfbMs?: number; totalMs?: number };
 }
@@ -80,6 +97,7 @@ function viewFromLocation(): MainView {
   if (typeof window === 'undefined') return 'landing';
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
   if (pathname === '/app') return 'workbench';
+  if (pathname === '/ops' || window.location.hash === '#ops') return 'ops';
   if (pathname === '/docs' || window.location.hash === '#docs') return 'docs';
   return 'landing';
 }
@@ -88,7 +106,7 @@ export default function CrawlerInterface() {
   const { status, activeJobId, startJob, loadJob, data, logs, error } = useSmartCrawl();
   const [mainView, setMainView] = useState<MainView>(viewFromLocation);
   const [url, setUrl] = useState('https://example.com');
-  const [activeTab, setActiveTab] = useState<'markdown' | 'links' | 'data' | 'console'>('console');
+  const [activeTab, setActiveTab] = useState<'markdown' | 'chunks' | 'links' | 'data' | 'console'>('console');
   const [selectedPageIdx, setSelectedPageIdx] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutMs, setTimeoutMs] = useState(15000);
@@ -104,7 +122,11 @@ export default function CrawlerInterface() {
   const [ops, setOps] = useState<OpsStats | null>(null);
   const [me, setMe] = useState<MeInfo | null>(null);
   const [account, setAccount] = useState<AccountSession | null>(null);
+  const [accountKeys, setAccountKeys] = useState<AccountKey[]>([]);
   const [firecrawlConfigured, setFirecrawlConfigured] = useState(false);
+  const [proxyConfigured, setProxyConfigured] = useState(false);
+  const [proxyInput, setProxyInput] = useState('');
+  const [crawlDelayMs, setCrawlDelayMs] = useState(250);
   const [creatingAccountKey, setCreatingAccountKey] = useState(false);
   const [recentJobs, setRecentJobs] = useState<JobSummaryItem[]>([]);
   const [copied, setCopied] = useState(false);
@@ -126,7 +148,8 @@ export default function CrawlerInterface() {
 
   const switchView = (v: MainView) => {
     setMainView(v);
-    const destination = v === 'landing' ? '/' : v === 'workbench' ? '/app' : '/docs';
+    const destination =
+      v === 'landing' ? '/' : v === 'workbench' ? '/app' : v === 'ops' ? '/ops' : '/docs';
     window.history.pushState(null, '', destination);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -136,8 +159,20 @@ export default function CrawlerInterface() {
     void fetchOpsStats(key).then(setOps);
     void fetchMe(key).then(setMe);
     void fetchRecentJobs(key, 10).then(setRecentJobs);
-    void fetchAccountSession().then(setAccount);
-    void fetchProviderStatus().then((providers) => setFirecrawlConfigured(Boolean(providers?.firecrawl.configured)));
+    void fetchAccountSession().then((session) => {
+      setAccount(session);
+      if (session?.authenticated) {
+        void fetchAccountDetails().then((details) => {
+          if (details) setAccountKeys(details.apiKeys);
+        });
+      } else {
+        setAccountKeys([]);
+      }
+    });
+    void fetchProviderStatus().then((providers) => {
+      setFirecrawlConfigured(Boolean(providers?.firecrawl.configured));
+      setProxyConfigured(Boolean(providers?.proxy?.configured));
+    });
   }, [apiKey]);
 
   const handleMintDemoKey = async () => {
@@ -173,6 +208,14 @@ export default function CrawlerInterface() {
   const handleSignOut = async () => {
     await signOut();
     setAccount((current) => current ? { ...current, authenticated: false, user: null } : current);
+    setAccountKeys([]);
+  };
+
+  const handleRevokeAccountKey = async (id: string) => {
+    const ok = await revokeAccountKey(id);
+    if (ok) {
+      refreshTelemetry();
+    }
   };
 
   useEffect(() => {
@@ -183,6 +226,16 @@ export default function CrawlerInterface() {
   const crawlPages = payload?.pages ?? [];
   const activeMarkdown =
     payload?.markdown ?? crawlPages[selectedPageIdx]?.markdown ?? '';
+  const activeChunks =
+    payload?.chunks ?? crawlPages[selectedPageIdx]?.chunks ?? [];
+  const activeMeta = crawlPages[selectedPageIdx]
+    ? {
+        contentHash: crawlPages[selectedPageIdx].contentHash,
+        wordCount: crawlPages[selectedPageIdx].wordCount,
+        estimatedTokens: crawlPages[selectedPageIdx].estimatedTokens,
+        engine: crawlPages[selectedPageIdx].engine,
+      }
+    : payload?.metadata;
   const discoveredLinks = payload?.links ?? [];
 
   useEffect(() => {
@@ -237,6 +290,8 @@ export default function CrawlerInterface() {
         limit,
         excludePaths,
         apiKey: apiKey.trim() || undefined,
+        proxy: proxyInput.trim() || undefined,
+        crawlDelayMs: targetMode === 'crawl' ? crawlDelayMs : undefined,
       },
       () => refreshTelemetry(),
     );
@@ -262,6 +317,43 @@ export default function CrawlerInterface() {
     const link = document.createElement('a');
     link.href = href;
     link.download = `smartcrawl_${Date.now()}.${isMd ? 'md' : 'json'}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDownloadJsonl = async () => {
+    const api = import.meta.env.VITE_API_URL ?? '';
+    if (activeJobId) {
+      try {
+        const headers: Record<string, string> = {};
+        if (apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
+        const res = await fetch(`${api}/v1/jobs/${encodeURIComponent(activeJobId)}/export.jsonl`, { headers });
+        if (res.ok) {
+          const text = await res.text();
+          const blob = new Blob([text], { type: 'application/x-ndjson;charset=utf-8' });
+          const href = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = href;
+          link.download = `smartcrawl_${activeJobId}.jsonl`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          return;
+        }
+      } catch {
+        // fall through to client-side JSONL construction
+      }
+    }
+    if (!payload) return;
+    const lines = crawlPages.length > 0
+      ? crawlPages.map((p) => JSON.stringify(p)).join('\n') + '\n'
+      : JSON.stringify(payload) + '\n';
+    const blob = new Blob([lines], { type: 'application/x-ndjson;charset=utf-8' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = `smartcrawl_${Date.now()}.jsonl`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -314,6 +406,13 @@ export default function CrawlerInterface() {
               className={`sc-nav-link ${mainView === 'workbench' ? 'sc-nav-link--active' : ''}`}
             >
               Workbench
+            </button>
+            <button
+              type="button"
+              onClick={() => switchView('ops')}
+              className={`sc-nav-link flex items-center gap-1.5 ${mainView === 'ops' ? 'sc-nav-link--active' : ''}`}
+            >
+              <Activity size={13} /> Observability
             </button>
             <button
               type="button"
@@ -407,6 +506,16 @@ export default function CrawlerInterface() {
           onOpenDocs={() => switchView('docs')}
           signInHref={account?.configured ? signInUrl() : undefined}
         />
+      ) : mainView === 'ops' ? (
+        <main className="flex-1 w-full bg-slate-950">
+          <ObservabilityView
+            ops={ops}
+            firecrawlConfigured={firecrawlConfigured}
+            proxyConfigured={proxyConfigured}
+            apiKey={apiKey.trim() || undefined}
+            onRefresh={() => refreshTelemetry()}
+          />
+        </main>
       ) : mainView === 'docs' ? (
         <main className="flex-1 w-full">
           <DocsView />
@@ -462,6 +571,51 @@ export default function CrawlerInterface() {
               ))}
               </div>
             </div>
+
+            {mode === 'scrape' && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="sc-label">Provider Engine</span>
+                  <span
+                    className={`font-code text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                      firecrawlConfigured
+                        ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/60'
+                        : 'bg-[var(--paper-soft)] text-[var(--ink-3)] border border-[var(--border)]'
+                    }`}
+                  >
+                    <Flame size={11} />
+                    {firecrawlConfigured ? 'Firecrawl API Ready' : 'Local Pipeline'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-xs select-none">
+                  {(
+                    [
+                      { id: 'local', label: 'Local' },
+                      { id: 'auto', label: 'Auto → Cloud' },
+                      { id: 'firecrawl', label: 'Firecrawl' },
+                    ] as const
+                  ).map((item) => {
+                    const disabled = item.id !== 'local' && !firecrawlConfigured;
+                    const active = provider === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setProvider(item.id)}
+                        className={`px-2 py-2 rounded-[8px] border text-[12px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                          active
+                            ? 'border-[var(--ink)] bg-[var(--surface)] text-[var(--ink)] shadow-xs'
+                            : 'border-[var(--border)] bg-transparent text-[var(--ink-2)] hover:text-[var(--ink)]'
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {needsSignIn && (
               <p className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-2)]">
@@ -544,6 +698,42 @@ export default function CrawlerInterface() {
                       className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs outline-none focus:border-emerald-500"
                     />
                   </div>
+
+                  {isSignedIn && accountKeys.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>Your Personal API Keys ({accountKeys.filter((k) => !k.revoked).length} active)</span>
+                        <button
+                          type="button"
+                          onClick={handleCreateAccountKey}
+                          disabled={creatingAccountKey}
+                          className="text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                        >
+                          + New Key
+                        </button>
+                      </div>
+                      <div className="space-y-1 max-h-[120px] overflow-auto pr-1 custom-scrollbar">
+                        {accountKeys.filter((k) => !k.revoked).map((k) => (
+                          <div
+                            key={k.id}
+                            className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-slate-950/80 border border-slate-800 text-[11px] font-mono"
+                          >
+                            <span className="truncate text-slate-300">
+                              {k.prefix}… ({k.usedToday}/{k.dailyLimit} today)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleRevokeAccountKey(k.id)}
+                              className="text-rose-400 hover:text-rose-300 p-0.5 cursor-pointer"
+                              title="Revoke key"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {mode === 'scrape' && (
@@ -628,19 +818,48 @@ export default function CrawlerInterface() {
                   </div>
 
                   {mode !== 'scrape' && (
-                    <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">
-                        Exclude path prefixes (comma-separated)
-                      </label>
-                      <input
-                        type="text"
-                        value={excludePathsInput}
-                        onChange={(e) => setExcludePathsInput(e.target.value)}
-                        placeholder="/admin, /login"
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs outline-none"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">
+                          Exclude path prefixes
+                        </label>
+                        <input
+                          type="text"
+                          value={excludePathsInput}
+                          onChange={(e) => setExcludePathsInput(e.target.value)}
+                          placeholder="/admin, /login"
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">
+                          Crawl Delay (ms, politeness)
+                        </label>
+                        <input
+                          type="number"
+                          value={crawlDelayMs ?? ''}
+                          min={0}
+                          step={100}
+                          placeholder="Default (robots or 250ms)"
+                          onChange={(e) => setCrawlDelayMs(Math.max(0, Number(e.target.value) || 0))}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs outline-none"
+                        />
+                      </div>
                     </div>
                   )}
+
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Egress Proxy URL (optional residential / egress routing)
+                    </label>
+                    <input
+                      type="text"
+                      value={proxyInput}
+                      onChange={(e) => setProxyInput(e.target.value)}
+                      placeholder="http://10.0.0.1:8080 (or socks5://)"
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs outline-none font-mono focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -723,6 +942,24 @@ export default function CrawlerInterface() {
 
             <button
               type="button"
+              onClick={() => setActiveTab('chunks')}
+              disabled={activeChunks.length === 0}
+              className={`sc-tab shrink-0 px-3 sm:px-3.5 py-3.5 text-[13px] font-medium flex items-center gap-1.5 disabled:opacity-30 ${
+                activeTab === 'chunks'
+                  ? 'sc-tab--active'
+                  : ''
+              }`}
+            >
+              <Layers size={13} /> AI Chunks
+              {activeChunks.length > 0 && (
+                <span className="font-code text-[11px] text-[var(--ink-3)]">
+                  {activeChunks.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('links')}
               disabled={discoveredLinks.length === 0}
               className={`sc-tab shrink-0 px-3 sm:px-3.5 py-3.5 text-[13px] font-medium flex items-center gap-1.5 disabled:opacity-30 ${
@@ -783,13 +1020,21 @@ export default function CrawlerInterface() {
                   >
                     <Download size={12} /> Export
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadJsonl()}
+                    className="px-2.5 py-1.5 text-[11px] border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--paper-soft)] rounded-[8px] text-[var(--ink-2)] flex items-center gap-1 font-code"
+                    title="Download AI dataset as JSONL (NDJSON)"
+                  >
+                    <Download size={12} /> .jsonl
+                  </button>
                 </>
               )}
             </div>
           </div>
 
           {/* Crawl Multi-Page Selector Bar */}
-          {activeTab === 'markdown' && crawlPages.length > 1 && (
+          {(activeTab === 'markdown' || activeTab === 'chunks') && crawlPages.length > 1 && (
             <div className="border-b border-[var(--border)] bg-[var(--paper-soft)] px-4 py-2 flex items-center gap-2 overflow-x-auto custom-scrollbar select-none">
               <span className="font-code text-[11px] text-[var(--ink-2)] shrink-0">Pages:</span>
               {crawlPages.map((p, idx) => (
@@ -852,17 +1097,66 @@ export default function CrawlerInterface() {
 
             {activeTab === 'markdown' && (
               <div className="space-y-3">
-                {crawlPages[selectedPageIdx] && (
-                  <div className="text-xs text-slate-400 pb-2 border-b border-slate-800 flex items-center justify-between">
-                    <span className="truncate">{crawlPages[selectedPageIdx].url}</span>
-                    <span className="text-emerald-400">
-                      HTTP {crawlPages[selectedPageIdx].statusCode}
+                {activeMeta && (
+                  <div className="text-[11px] font-code text-[var(--ink-2)] pb-2 border-b border-[var(--border)] flex flex-wrap items-center justify-between gap-2">
+                    <span className="truncate">
+                      {crawlPages[selectedPageIdx]?.url ?? payload?.metadata?.finalUrl ?? url}
                     </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {activeMeta.engine && (
+                        <span className="px-2 py-0.5 rounded bg-[var(--paper-soft)] border border-[var(--border)]">
+                          engine: {activeMeta.engine}
+                        </span>
+                      )}
+                      {activeMeta.estimatedTokens !== undefined && (
+                        <span className="px-2 py-0.5 rounded bg-[var(--paper-soft)] border border-[var(--border)]">
+                          ~{activeMeta.estimatedTokens} tokens ({activeMeta.wordCount ?? 0} words)
+                        </span>
+                      )}
+                      {activeMeta.contentHash && (
+                        <span className="px-2 py-0.5 rounded bg-[var(--paper-soft)] border border-[var(--border)]" title="SHA-256 content deduplication fingerprint">
+                          sha256:{activeMeta.contentHash}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
-                <pre className="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">
+                <pre className="text-xs leading-relaxed whitespace-pre-wrap">
                   {activeMarkdown}
                 </pre>
+              </div>
+            )}
+
+            {activeTab === 'chunks' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--ink-2)] pb-2 border-b border-[var(--border)]">
+                  <span>
+                    Heading-aware semantic segmentation ({activeChunks.length} chunks) ready for RAG &amp; LLM ingestion
+                  </span>
+                  {activeMeta?.contentHash && (
+                    <span className="font-code text-[11px]">
+                      hash: {activeMeta.contentHash} · total ~{activeMeta.estimatedTokens ?? 0} tokens
+                    </span>
+                  )}
+                </div>
+                {activeChunks.map((chunk) => (
+                  <div
+                    key={chunk.index}
+                    className="p-3.5 rounded-[10px] border border-[var(--border)] bg-[var(--paper-soft)] space-y-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2 font-code text-[11px] text-[var(--ink-2)]">
+                      <span className="font-semibold text-[var(--ink)]">
+                        #{chunk.index + 1} {chunk.heading ? `· ${chunk.heading}` : '· Body segment'}
+                      </span>
+                      <span>
+                        {chunk.charCount} chars · ~{chunk.estimatedTokens} tokens
+                      </span>
+                    </div>
+                    <pre className="text-xs leading-relaxed whitespace-pre-wrap text-[var(--ink)]">
+                      {chunk.text}
+                    </pre>
+                  </div>
+                ))}
               </div>
             )}
 

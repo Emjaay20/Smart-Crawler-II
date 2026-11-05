@@ -8,21 +8,25 @@ export type ErrorCode =
   | 'http_4xx'
   | 'http_5xx'
   | 'js_required'
+  | 'anti_bot_detected'
+  | 'circuit_broken'
   | 'provider_unavailable'
   | 'extract_empty'
   | 'unknown';
 
 export class ScrapeError extends Error {
   readonly cause?: unknown;
+  readonly challengeProvider?: string;
 
   constructor(
     readonly code: ErrorCode,
     message: string,
-    options?: { cause?: unknown },
+    options?: { cause?: unknown; challengeProvider?: string },
   ) {
     super(message);
     this.name = 'ScrapeError';
     this.cause = options?.cause;
+    this.challengeProvider = options?.challengeProvider;
   }
 }
 

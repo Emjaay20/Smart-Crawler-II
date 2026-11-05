@@ -70,10 +70,10 @@ export class SlackReporter {
     const summary = [
       `*[SmartCrawl Operational Digest]* status=\`${status.toUpperCase()}\``,
       `• *Jobs:* ${snapshot.scrapeCompleted} ok / ${snapshot.scrapeFailed} failed (${successRatePct}% success)`,
-      `• *Engines:* HTTP=${snapshot.engineHttp} | Playwright=${snapshot.enginePlaywright}`,
-      `• *Latency:* avg=${snapshot.durationAvgMs}ms | p95=${snapshot.durationP95Ms}ms`,
-      `• *Discovery:* map_links=${snapshot.mapLinks} | crawl_pages=${snapshot.crawlPages}`,
-      `• *Workers:* active=${snapshot.activeWorkers} | queued=${snapshot.queueDepth}`,
+      `• *Engines:* HTTP=${snapshot.engineHttp} | Playwright=${snapshot.enginePlaywright} | Firecrawl=${snapshot.engineFirecrawl}`,
+      `• *Latency:* p50=${snapshot.durationP50Ms}ms | avg=${snapshot.durationAvgMs}ms | p95=${snapshot.durationP95Ms}ms | p99=${snapshot.durationP99Ms}ms`,
+      `• *Discovery & Tokens:* map_links=${snapshot.mapLinks} | crawl_pages=${snapshot.crawlPages} | tokens=${snapshot.tokensExtractedTotal}`,
+      `• *Workers:* active=${snapshot.activeWorkers} | queued=${snapshot.queueDepth} | retries=${snapshot.retriesTotal}`,
       `• *Errors by code:* ${topErrors}`,
     ].join('\n');
 

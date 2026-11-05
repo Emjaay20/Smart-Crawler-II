@@ -31,9 +31,10 @@ program
   .description('Scrape one URL to markdown')
   .argument('<url>')
   .option('--js <mode>', 'auto | true | false', 'auto')
-  .action(async (url: string, opts: { js: string }) => {
+  .option('--provider <mode>', 'local | auto | firecrawl', 'local')
+  .action(async (url: string, opts: { js: string; provider: string }) => {
     const sc = client(program);
-    print(await sc.scrape(url, { js: parseJs(opts.js) }));
+    print(await sc.scrape(url, { js: parseJs(opts.js), provider: parseProvider(opts.provider) }));
   });
 
 program
@@ -75,6 +76,15 @@ program
   });
 
 program
+  .command('export')
+  .description('Export a completed job as JSONL (NDJSON) dataset lines')
+  .argument('<id>')
+  .action(async (id: string) => {
+    const sc = client(program);
+    process.stdout.write(await sc.exportJsonl(id));
+  });
+
+program
   .command('report')
   .description('Generate operational health digest (and optionally post to Slack via admin token)')
   .option('--slack [webhookUrl]', 'Post operational digest to Slack')
@@ -105,6 +115,11 @@ function parseJs(value: string): boolean | 'auto' {
   if (value === 'true') return true;
   if (value === 'false') return false;
   return 'auto';
+}
+
+function parseProvider(value: string): 'local' | 'auto' | 'firecrawl' {
+  if (value === 'firecrawl' || value === 'auto') return value;
+  return 'local';
 }
 
 function print(value: unknown): void {

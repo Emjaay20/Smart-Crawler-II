@@ -145,6 +145,24 @@ paths:
           description: Job
         '404':
           description: Not found
+  /v1/jobs/{jobId}/export.jsonl:
+    get:
+      summary: Export completed scrape or crawl job as JSONL (NDJSON) AI training dataset
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: application/x-ndjson dataset stream
+        '404':
+          description: Not found
+        '409':
+          description: Job not completed yet
   /v1/admin/keys:
     get:
       summary: List key prefixes and usage
@@ -247,6 +265,9 @@ components:
           type: integer
         userAgent:
           type: string
+        proxy:
+          type: string
+          description: Optional egress proxy URL (HTTP/HTTPS/SOCKS5) with SSRF loopback/private IP filtering.
     DiscoverRequest:
       allOf:
         - $ref: '#/components/schemas/ScrapeRequest'
@@ -254,6 +275,9 @@ components:
           properties:
             limit:
               type: integer
+            crawlDelayMs:
+              type: integer
+              description: Politeness delay between requests to the same origin in ms (with randomized jitter).
             includePaths:
               type: array
               items:

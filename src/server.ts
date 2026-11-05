@@ -9,6 +9,7 @@ import { KeyStore } from './keys.js';
 import { JobStore } from './jobs.js';
 import { Metrics } from './metrics.js';
 import { OidcClient } from './oidc.js';
+import { DomainCircuitBreaker } from './circuit.js';
 import { FirecrawlProvider } from './firecrawl.js';
 import { scrape } from './scrape.js';
 
@@ -25,8 +26,16 @@ const keys = new KeyStore(store.db);
 const accounts = new AccountStore(store.db);
 const metrics = new Metrics();
 const firecrawl = FirecrawlProvider.fromEnv();
+const circuitBreaker = new DomainCircuitBreaker();
+const proxyConfigured = Boolean(
+  process.env.SMARTCRAWL_PROXY_URL?.trim() ||
+  process.env.HTTPS_PROXY?.trim() ||
+  process.env.HTTP_PROXY?.trim(),
+);
 const scrapeDeps = {
   renderWithBrowser: renderWithPlaywright,
+  circuitBreaker,
+  onRetry: () => metrics.recordRetry(),
   ...(firecrawl ? { scrapeWithFirecrawl: firecrawl.scrape.bind(firecrawl) } : {}),
 };
 const adminToken = resolveAdminToken(dbPath);
@@ -40,6 +49,7 @@ const app = createApp({
   publicDir,
   metrics,
   firecrawlConfigured: Boolean(firecrawl),
+  proxyConfigured,
   scrape: (request) => scrape(request, scrapeDeps),
   map: (request) => mapSite(request, scrapeDeps),
   crawl: (request, hooks) => crawlSite(request, { ...scrapeDeps, ...hooks }),

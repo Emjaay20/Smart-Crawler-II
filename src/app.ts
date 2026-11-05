@@ -6,7 +6,7 @@ import { SlackReporter } from './alerts.js';
 import { AccountStore, type Account } from './accounts.js';
 import type { CrawledPage, CrawlResult, DiscoverRequest, MapResult } from './crawl.js';
 import { classifyError } from './errors.js';
-import type { JobStore } from './jobs.js';
+import { exportJobAsJsonl, type JobStore } from './jobs.js';
 import { bearerToken, safeEqualToken, utcDay, type AuthKey, type KeyStore } from './keys.js';
 import { Metrics } from './metrics.js';
 import { OidcClient } from './oidc.js';
@@ -32,6 +32,7 @@ export interface AppDeps {
   oidc?: OidcClient;
   freeDailyLimit?: number;
   firecrawlConfigured?: boolean;
+  proxyConfigured?: boolean;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -205,7 +206,10 @@ export function createApp(deps: AppDeps): Express {
   });
 
   app.get('/v1/providers', (_req, res) => {
-    res.json({ firecrawl: { configured: Boolean(deps.firecrawlConfigured) } });
+    res.json({
+      firecrawl: { configured: Boolean(deps.firecrawlConfigured) },
+      proxy: { configured: Boolean(deps.proxyConfigured) },
+    });
   });
 
   app.get('/v1/me', requireUser, (_req, res) => {
@@ -338,6 +342,9 @@ export function createApp(deps: AppDeps): Express {
           ok: true,
           engine: data.metadata.engine,
           durationMs: data.timing.totalMs,
+          tokens: data.metadata.estimatedTokens,
+          url: request.url,
+          jobId,
         });
         return data;
       },
@@ -404,7 +411,8 @@ export function createApp(deps: AppDeps): Express {
           },
         });
         deps.store.appendLog(jobId, { level: 'success', msg: `Crawled ${data.pages.length} pages` });
-        metrics.recordCrawl(data.pages.length);
+        const totalTokens = data.pages.reduce((sum, p) => sum + (p.estimatedTokens ?? 0), 0);
+        metrics.recordCrawl(data.pages.length, totalTokens);
         return data;
       },
     );
@@ -451,6 +459,20 @@ export function createApp(deps: AppDeps): Express {
       return res.status(404).json({ error: 'Job not found' });
     }
     res.json(serializeJob(job));
+  });
+
+  app.get('/v1/jobs/:jobId/export.jsonl', requireUser, (req, res) => {
+    const job = deps.store.getJob(req.params.jobId);
+    if (!job || !canReadJob(job.options, res.locals.apiKey as AuthKey | undefined, authOn)) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    if (job.status !== 'completed') {
+      return res.status(409).json({ error: 'Job is not completed yet' });
+    }
+    const jsonl = exportJobAsJsonl(job);
+    res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('content-disposition', `attachment; filename="smartcrawl_${job.id}.jsonl"`);
+    res.send(jsonl);
   });
 
   app.get('/status/:jobId', requireUser, (req, res) => {
@@ -560,6 +582,18 @@ function parseAndValidateScrapeBody(body: unknown): ParseResult<ScrapeRequest> {
   }
   if (typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)) request.timeoutMs = record.timeoutMs;
   if (typeof record.userAgent === 'string' && record.userAgent.trim()) request.userAgent = record.userAgent.trim();
+  if (typeof record.maxRetries === 'number' && Number.isFinite(record.maxRetries)) request.maxRetries = record.maxRetries;
+  if (typeof record.proxy === 'string' && record.proxy.trim()) {
+    try {
+      validateHttpUrl(record.proxy.trim());
+      request.proxy = record.proxy.trim();
+    } catch (err) {
+      if (err instanceof InvalidUrlError) {
+        return { ok: false, error: err.message };
+      }
+      return { ok: false, error: 'Invalid proxy URL' };
+    }
+  }
   return { ok: true, value: request };
 }
 
@@ -569,6 +603,9 @@ function parseAndValidateDiscoverBody(body: unknown): ParseResult<DiscoverReques
   const record = body as Record<string, unknown>;
   const request: DiscoverRequest = { ...base.value };
   if (typeof record.limit === 'number' && Number.isFinite(record.limit)) request.limit = record.limit;
+  if (typeof record.crawlDelayMs === 'number' && Number.isFinite(record.crawlDelayMs)) {
+    request.crawlDelayMs = Math.max(0, record.crawlDelayMs);
+  }
   if (Array.isArray(record.includePaths)) {
     request.includePaths = record.includePaths.filter((value): value is string => typeof value === 'string');
   }
@@ -615,6 +652,8 @@ async function runJob(
       ok: false,
       durationMs: Date.now() - started,
       errorCode: classified.code,
+      url,
+      jobId,
     });
     void alerts.notifyFailureIfThresholdMet({
       jobId,

@@ -49,6 +49,9 @@ export class JobStore {
     }
     this.db = new DatabaseSync(path);
     this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
         status TEXT NOT NULL,
@@ -176,4 +179,49 @@ export class JobStore {
       updatedAt: row.updated_at,
     };
   }
+}
+
+export function exportJobAsJsonl(job: Job): string {
+  const exportedAt = new Date(job.updatedAt || Date.now()).toISOString();
+  const payload = (job.data ?? {}) as Record<string, unknown>;
+
+  if (Array.isArray(payload.pages)) {
+    return payload.pages
+      .map((page) => {
+        const p = page as Record<string, unknown>;
+        return JSON.stringify({
+          jobId: job.id,
+          kind: 'crawl',
+          url: p.url ?? job.url,
+          title: p.title,
+          statusCode: p.statusCode ?? 200,
+          engine: p.engine ?? 'http',
+          contentHash: p.contentHash,
+          wordCount: p.wordCount,
+          estimatedTokens: p.estimatedTokens,
+          markdown: p.markdown ?? '',
+          chunks: Array.isArray(p.chunks) ? p.chunks : [],
+          exportedAt,
+        });
+      })
+      .join('\n') + '\n';
+  }
+
+  const metadata = (payload.metadata ?? {}) as Record<string, unknown>;
+  return JSON.stringify({
+    jobId: job.id,
+    kind: typeof job.options.kind === 'string' ? job.options.kind : 'scrape',
+    url: metadata.finalUrl ?? metadata.sourceUrl ?? job.url,
+    title: metadata.title,
+    description: metadata.description,
+    statusCode: metadata.statusCode ?? 200,
+    engine: metadata.engine ?? 'http',
+    contentHash: metadata.contentHash,
+    wordCount: metadata.wordCount,
+    estimatedTokens: metadata.estimatedTokens,
+    markdown: typeof payload.markdown === 'string' ? payload.markdown : '',
+    links: Array.isArray(payload.links) ? payload.links : [],
+    chunks: Array.isArray(payload.chunks) ? payload.chunks : [],
+    exportedAt,
+  }) + '\n';
 }

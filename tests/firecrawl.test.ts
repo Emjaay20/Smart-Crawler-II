@@ -35,6 +35,9 @@ describe('FirecrawlProvider', () => {
     expect(result.metadata.engine).toBe('firecrawl');
     expect(result.markdown).toBe('# Article');
     expect(result.links).toEqual(['https://example.com/next']);
+    expect(result.metadata.contentHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(result.metadata.estimatedTokens).toBeGreaterThan(0);
+    expect(result.chunks?.[0]?.heading).toBe('Article');
   });
 
   it('is absent until the deployment has a private environment key', () => {

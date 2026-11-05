@@ -31,9 +31,10 @@ npx smartcrawl --base https://smart-crawler.aetherhost.com.ng health
 npx smartcrawl me
 npx smartcrawl jobs
 npx smartcrawl report
-npx smartcrawl scrape https://example.com
+npx smartcrawl scrape https://example.com --provider auto
 npx smartcrawl map https://example.com --limit 10
 npx smartcrawl crawl https://example.com --limit 3
+npx smartcrawl export <jobId> > dataset.jsonl
 ```
 
 Env: `SMARTCRAWL_URL`, `SMARTCRAWL_API_KEY`. Flags: `--base`, `--key`.
@@ -69,6 +70,7 @@ curl -s http://localhost:3000/health
 | POST | `/v1/crawl` | Multi-page BFS scrape (`limit` max 20) |
 | GET | `/v1/jobs` | List recent jobs (`?limit=20`) |
 | GET | `/v1/jobs/:id` | Job status, logs, result |
+| GET | `/v1/jobs/:id/export.jsonl` | Export completed scrape/crawl job as NDJSON (`.jsonl`) dataset |
 | POST | `/v1/admin/keys` | Mint a user key (admin token) |
 | GET | `/v1/admin/keys` | List key prefixes and quota (admin) |
 | DELETE | `/v1/admin/keys/:id` | Revoke a user key (admin) |
@@ -114,7 +116,16 @@ Successful `data`:
 }
 ```
 
-Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `provider_unavailable`, `extract_empty`, `unknown`.
+Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
+
+## Web-Scale Crawler & Egress Infrastructure
+
+SmartCrawl incorporates production crawler infrastructure patterned after high-throughput distributed crawling networks:
+
+- **Egress Proxy Routing:** Supports outbound HTTP/HTTPS/SOCKS5 proxies via ambient environment variables (`SMARTCRAWL_PROXY_URL`, `HTTP_PROXY`, `HTTPS_PROXY`) or per-request `proxy` parameters. In Node 22, requests are routed via `undici.ProxyAgent` connection pools; in browser mode, proxies are injected into isolated Playwright browser contexts. Every proxy URL is validated against the SSRF engine to prevent loopback/metadata pivot attacks.
+- **WAF & Anti-Bot Challenge Classification:** Inspects response headers and HTML payloads to identify challenge barriers before classifying generic HTTP errors. Accurately flags Cloudflare Turnstile / Under Attack Mode (`cf-ray`, `cf-chl-bypass`, `<title>Just a moment...</title>`), DataDome (`x-datadome`), AWS WAF (`x-amzn-waf-action: block`), and Akamai (`x-akamai-transformed`) as `anti_bot_detected`. When `provider: "auto"` is selected, requests automatically escalate to the server's configured managed provider tier.
+- **Domain Circuit Breakers (`DomainCircuitBreaker`):** Prevents burning proxy IP reputations or wasting bandwidth on persistent WAF blocks. Tracks consecutive challenge/failure states per origin; after reaching the failure threshold, the origin enters an open circuit state, immediately rejecting requests with `circuit_broken` during the cooldown window before probing in half-open state.
+- **Politeness Limiter & Jitter (`DomainPolitenessLimiter`):** Enforces crawl spacing per target domain, honoring robots.txt `Crawl-delay` directives and adding randomized jitter to smooth traffic spikes and avoid synchronized hammering of upstream origins.
 
 ## Docker / AetherHost
 

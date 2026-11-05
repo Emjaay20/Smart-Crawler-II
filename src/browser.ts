@@ -42,7 +42,10 @@ async function render(url: string, request: ResolvedScrapeRequest): Promise<Brow
   const started = Date.now();
   let failed = false;
   try {
-    const context = await instance.newContext({ userAgent: request.userAgent });
+    const context = await instance.newContext({
+      userAgent: request.userAgent,
+      ...(request.proxy ? { proxy: { server: request.proxy } } : {}),
+    });
     try {
       const page = await context.newPage();
       await page.route('**/*', (route) => {

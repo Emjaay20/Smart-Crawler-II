@@ -135,6 +135,13 @@ describe('http api', () => {
 
     const jobsList = await (await fetch(`${started.base}/v1/jobs?limit=5`)).json() as { jobs: Array<{ id: string }> };
     expect(jobsList.jobs.some((j) => j.id === jobId)).toBe(true);
+
+    const jsonlRes = await fetch(`${started.base}/v1/jobs/${jobId}/export.jsonl`);
+    expect(jsonlRes.status).toBe(200);
+    expect(jsonlRes.headers.get('content-type')).toMatch(/application\/x-ndjson/);
+    const jsonlLine = JSON.parse((await jsonlRes.text()).trim()) as { jobId: string; markdown: string };
+    expect(jsonlLine.jobId).toBe(jobId);
+    expect(jsonlLine.markdown).toBe('# Hello');
   });
 
   it('serves the playground without breaking Express 5 routing', async () => {
@@ -148,7 +155,7 @@ describe('http api', () => {
     const started = await listen(app);
     server = started.server;
 
-    for (const route of ['/', '/app', '/docs']) {
+    for (const route of ['/', '/app', '/ops', '/docs']) {
       const page = await fetch(`${started.base}${route}`);
       expect(page.status).toBe(200);
       expect(await page.text()).toMatch(/SmartCrawl/);
@@ -159,12 +166,12 @@ describe('http api', () => {
   it('reports only whether the optional provider is configured', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
-    const app = createApp({ store, scrape: async () => sample, firecrawlConfigured: true });
+    const app = createApp({ store, scrape: async () => sample, firecrawlConfigured: true, proxyConfigured: true });
     const started = await listen(app);
     server = started.server;
 
     const providers = await (await fetch(`${started.base}/v1/providers`)).json();
-    expect(providers).toEqual({ firecrawl: { configured: true } });
+    expect(providers).toEqual({ firecrawl: { configured: true }, proxy: { configured: true } });
   });
 
   it('exposes prometheus metrics after a scrape job', async () => {

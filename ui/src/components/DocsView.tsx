@@ -144,6 +144,38 @@ export const DocsView: React.FC = () => {
                   Unbounded crawling triggers OOM on resource-constrained containers (512MB RAM). Bounded concurrency (default: 4 slots) queues tasks and exposes <code className="text-xs">worker_queue_depth</code> metrics.
                 </td>
               </tr>
+              <tr className="hover:bg-slate-900/40">
+                <td className="p-3.5 font-bold text-white">Egress & Proxy Routing</td>
+                <td className="p-3.5 text-emerald-400">Node 22 <code className="text-xs">ProxyAgent</code> + SSRF-safe egress proxy</td>
+                <td className="p-3.5 text-slate-400">Direct server IP egress only</td>
+                <td className="p-3.5 font-sans text-xs text-slate-300">
+                  Essential for distributed crawling networks (e.g. Grass). Routes requests through residential egress nodes while strictly blocking loopback and cloud metadata SSRF targets.
+                </td>
+              </tr>
+              <tr className="hover:bg-slate-900/40">
+                <td className="p-3.5 font-bold text-white">Anti-Bot & WAF Handling</td>
+                <td className="p-3.5 text-emerald-400">Challenge Classification + Auto Escalation</td>
+                <td className="p-3.5 text-slate-400">Generic 403/503 error bubbling</td>
+                <td className="p-3.5 font-sans text-xs text-slate-300">
+                  Detects Cloudflare Turnstile, DataDome, Akamai, and AWS WAF signatures early, classifying errors as <code className="text-xs">anti_bot_detected</code> and triggering auto-escalation in managed tier mode.
+                </td>
+              </tr>
+              <tr className="hover:bg-slate-900/40">
+                <td className="p-3.5 font-bold text-white">IP Reputation Protection</td>
+                <td className="p-3.5 text-emerald-400">Domain Circuit Breaker with Cooldown</td>
+                <td className="p-3.5 text-slate-400">Aggressive retries on blocked domains</td>
+                <td className="p-3.5 font-sans text-xs text-slate-300">
+                  Repeatedly hitting WAF-blocked domains gets entire proxy subnets blacklisted. Trips after consecutive failures, immediately failing fast with <code className="text-xs">circuit_broken</code> before sending network traffic.
+                </td>
+              </tr>
+              <tr className="hover:bg-slate-900/40">
+                <td className="p-3.5 font-bold text-white">Politeness & Jitter</td>
+                <td className="p-3.5 text-emerald-400">Per-domain Politeness Limiter + robots.txt</td>
+                <td className="p-3.5 text-slate-400">Static delays or burst crawling</td>
+                <td className="p-3.5 font-sans text-xs text-slate-300">
+                  Enforces parsed <code className="text-xs">Crawl-delay</code> directives and injects randomized jitter to prevent thundering herd traffic patterns against upstream servers.
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>

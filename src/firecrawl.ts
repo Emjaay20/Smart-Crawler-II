@@ -1,3 +1,4 @@
+import { enrichMarkdownDocument } from './extract.js';
 import type { ResolvedScrapeRequest } from './scrape.js';
 import type { ScrapeResult } from './types.js';
 import { validateHttpUrl } from './url.js';
@@ -66,15 +67,20 @@ export class FirecrawlProvider {
     validateHttpUrl(finalUrl);
     const statusCode = typeof metadata.statusCode === 'number' ? metadata.statusCode : 200;
     const warning = typeof data.warning === 'string' ? data.warning : undefined;
+    const markdown = typeof data.markdown === 'string' ? data.markdown : undefined;
+    const enrichment = markdown ? enrichMarkdownDocument(markdown) : undefined;
 
     return {
       success: true,
-      markdown: typeof data.markdown === 'string' ? data.markdown : undefined,
+      markdown,
       html: typeof data.html === 'string' ? data.html : undefined,
       links: stringArray(data.links),
+      ...(enrichment ? { chunks: enrichment.chunks } : {}),
       metadata: {
         title: typeof metadata.title === 'string' ? metadata.title : undefined,
         description: typeof metadata.description === 'string' ? metadata.description : undefined,
+        ...(enrichment?.contentHash ? { contentHash: enrichment.contentHash } : {}),
+        ...(enrichment ? { wordCount: enrichment.wordCount, estimatedTokens: enrichment.estimatedTokens } : {}),
         statusCode,
         sourceUrl: request.url,
         finalUrl,
