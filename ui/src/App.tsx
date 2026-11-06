@@ -133,8 +133,13 @@ export default function CrawlerInterface() {
   const logsEndRef = useRef<HTMLDivElement>(null);
   const accountIsConfigured = account?.configured === true;
   const isSignedIn = accountIsConfigured && account.authenticated && Boolean(account.user);
-  const needsSignIn = accountIsConfigured && !isSignedIn;
-  const needsApiKey = me?.authRequired === true && !apiKey.trim();
+  const guestInfo = me?.guest;
+  const guestAllowed = guestInfo ? guestInfo.allowed : true;
+  const guestRemaining = guestInfo ? guestInfo.remaining : 2;
+  const guestLimit = guestInfo ? guestInfo.limit : 2;
+  const isGuestDemo = !isSignedIn && !apiKey.trim();
+  const needsSignIn = accountIsConfigured && !isSignedIn && !guestAllowed;
+  const needsApiKey = isSignedIn && me?.authRequired === true && !apiKey.trim();
 
   useEffect(() => {
     const onLocationChange = () => setMainView(viewFromLocation());
@@ -617,10 +622,30 @@ export default function CrawlerInterface() {
               </div>
             )}
 
+            {isGuestDemo && guestAllowed && (
+              <div className="rounded-[10px] border border-emerald-800/40 bg-emerald-950/20 px-3 py-2 text-[12px] leading-relaxed text-emerald-300 flex items-center justify-between">
+                <span>Free demo: <strong>{guestRemaining} of {guestLimit}</strong> trial runs left for this IP.</span>
+                {accountIsConfigured && (
+                  <button
+                    type="button"
+                    onClick={() => window.location.assign(signInUrl())}
+                    className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-200 underline cursor-pointer ml-2 whitespace-nowrap"
+                  >
+                    Sign in for 25/day
+                  </button>
+                )}
+              </div>
+            )}
+
             {needsSignIn && (
-              <p className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[12px] leading-relaxed text-[var(--ink-2)]">
-                Sign in to create a personal API key and run your first scrape.
-              </p>
+              <div className="rounded-[10px] border border-amber-800/40 bg-amber-950/20 px-3 py-2 text-[12px] leading-relaxed text-amber-200 space-y-1">
+                <div className="font-medium text-amber-100 flex items-center gap-1.5">
+                  <KeyRound size={13} className="text-amber-400" /> Free demo quota exhausted (0 remaining)
+                </div>
+                <p className="text-[11px] text-amber-300/80">
+                  You've used your {guestLimit} free demo scrapes for today. Sign in to get 25 free scrapes every day + personal API keys.
+                </p>
+              </div>
             )}
 
             {isSignedIn && needsApiKey && (
@@ -641,11 +666,15 @@ export default function CrawlerInterface() {
                 </>
               ) : needsSignIn ? (
                 <>
-                  <KeyRound size={14} /> Sign in to run a scrape <ArrowRight size={14} />
+                  <KeyRound size={14} /> Demo limit reached · Sign in for 25/day <ArrowRight size={14} />
                 </>
               ) : isSignedIn && needsApiKey ? (
                 <>
                   <KeyRound size={14} /> {creatingAccountKey ? 'Creating API key…' : 'Create API key to run'} <ArrowRight size={14} />
+                </>
+              ) : isGuestDemo ? (
+                <>
+                  <Play size={14} fill="currentColor" /> Run demo {mode} ({guestRemaining} left) <ArrowRight size={14} />
                 </>
               ) : (
                 <>

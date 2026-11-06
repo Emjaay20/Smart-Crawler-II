@@ -31,14 +31,34 @@ export interface AppDeps {
   accounts?: AccountStore;
   oidc?: OidcClient;
   freeDailyLimit?: number;
+  guestDemoLimit?: number;
   firecrawlConfigured?: boolean;
   proxyConfigured?: boolean;
+}
+
+export function getClientIp(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0].trim();
+  }
+  return req.ip || req.socket.remoteAddress || '127.0.0.1';
 }
 
 export function createApp(deps: AppDeps): Express {
   const metrics = deps.metrics ?? new Metrics();
   const alerts = deps.alerts ?? new SlackReporter();
   const maxConcurrent = Math.max(1, deps.maxConcurrentJobs ?? (Number(process.env.MAX_CONCURRENT_JOBS) || 4));
+  const guestDemoLimit = Math.max(
+    0,
+    deps.guestDemoLimit !== undefined
+      ? deps.guestDemoLimit
+      : process.env.SMARTCRAWL_GUEST_DEMO_LIMIT !== undefined
+      ? Number(process.env.SMARTCRAWL_GUEST_DEMO_LIMIT)
+      : 0,
+  );
   let activeJobs = 0;
   const pendingTasks: Array<() => void> = [];
 
@@ -92,21 +112,41 @@ export function createApp(deps: AppDeps): Express {
   });
 
   const requireUser = (req: Request, res: Response, next: NextFunction) => {
-    if (!authOn || !deps.keys) {
-      const token = bearerToken(req.headers.authorization);
-      if (token && deps.keys) {
-        const key = deps.keys.authenticate(token);
-        if (key) res.locals.apiKey = key;
+    const token = bearerToken(req.headers.authorization);
+    if (token && deps.keys) {
+      const key = deps.keys.authenticate(token);
+      if (key) {
+        res.locals.apiKey = key;
+        return next();
       }
+      return res.status(401).json({ error: 'Invalid API key', code: 'unauthorized' });
+    }
+
+    if (!authOn || !deps.keys) {
       return next();
     }
-    const token = bearerToken(req.headers.authorization);
-    const key = token ? deps.keys.authenticate(token) : null;
-    if (!key) {
-      return res.status(401).json({ error: 'API key required', code: 'unauthorized' });
+
+    if (guestDemoLimit > 0) {
+      const clientIp = getClientIp(req);
+      const day = utcDay(new Date());
+      const guestUsage = deps.keys.getGuestUsage(clientIp, day, guestDemoLimit);
+
+      if (guestUsage.allowed) {
+        res.locals.isGuestDemo = true;
+        res.locals.guestIp = clientIp;
+        res.locals.guestDay = day;
+        return next();
+      }
+
+      return res.status(401).json({
+        error: `Free demo limit reached (${guestUsage.used}/${guestDemoLimit}). Please sign in to create an account for 25 daily scrapes.`,
+        code: 'demo_quota_exceeded',
+        guestLimit: guestDemoLimit,
+        guestRemaining: 0,
+      });
     }
-    res.locals.apiKey = key;
-    next();
+
+    return res.status(401).json({ error: 'API key required', code: 'unauthorized' });
   };
 
   const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
@@ -182,6 +222,26 @@ export function createApp(deps: AppDeps): Express {
     if (!deps.keys) return true;
     const key = res.locals.apiKey as AuthKey | undefined;
     if (!key) {
+      if (res.locals.isGuestDemo && deps.keys) {
+        const clientIp = res.locals.guestIp as string;
+        const day = res.locals.guestDay as string;
+        const result = deps.keys.consumeGuest(clientIp, day, guestDemoLimit);
+        res.setHeader('x-demo-limit', String(guestDemoLimit));
+        res.setHeader('x-demo-remaining', String(result.remaining));
+        res.setHeader('x-ratelimit-limit', String(guestDemoLimit));
+        res.setHeader('x-ratelimit-remaining', String(result.remaining));
+        if (!result.ok) {
+          res.status(401).json({
+            error: `Free demo limit reached (${guestDemoLimit}/${guestDemoLimit}). Please sign in to create an account for 25 daily scrapes.`,
+            code: 'demo_quota_exceeded',
+            guestLimit: guestDemoLimit,
+            guestRemaining: 0,
+          });
+          return false;
+        }
+        res.locals.quotaRemaining = result.remaining;
+        return true;
+      }
       if (!authOn) return true;
       res.status(401).json({ error: 'API key required', code: 'unauthorized' });
       return false;
@@ -212,13 +272,39 @@ export function createApp(deps: AppDeps): Express {
     });
   });
 
-  app.get('/v1/me', requireUser, (_req, res) => {
-    const key = res.locals.apiKey as AuthKey | undefined;
-    const usage = key && deps.keys ? deps.keys.getUsage(key.id, utcDay(new Date())) : null;
+  app.get('/v1/me', (req, res) => {
+    const token = bearerToken(req.headers.authorization);
+    if (token) {
+      if (!deps.keys) return res.status(401).json({ error: 'Invalid API key', code: 'unauthorized' });
+      const key = deps.keys.authenticate(token);
+      if (!key) return res.status(401).json({ error: 'Invalid API key', code: 'unauthorized' });
+      const usage = deps.keys.getUsage(key.id, utcDay(new Date()));
+      return res.json({
+        authenticated: Boolean(usage),
+        authRequired: authOn,
+        key: usage,
+      });
+    }
+
+    if (authOn && guestDemoLimit === 0) {
+      return res.status(401).json({ error: 'API key required', code: 'unauthorized' });
+    }
+
+    const clientIp = getClientIp(req);
+    const guestUsage = deps.keys && guestDemoLimit > 0
+      ? deps.keys.getGuestUsage(clientIp, utcDay(new Date()), guestDemoLimit)
+      : null;
+
     res.json({
-      authenticated: Boolean(usage),
+      authenticated: false,
       authRequired: authOn,
-      key: usage,
+      key: null,
+      guest: guestUsage ? {
+        limit: guestDemoLimit,
+        used: guestUsage.used,
+        remaining: guestUsage.remaining,
+        allowed: guestUsage.allowed,
+      } : undefined,
     });
   });
 
@@ -449,13 +535,14 @@ export function createApp(deps: AppDeps): Express {
     const rawLimit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20;
     const limit = Number.isFinite(rawLimit) ? rawLimit : 20;
     const key = res.locals.apiKey as AuthKey | undefined;
-    const jobs = deps.store.listJobs({ keyId: key?.id, userId: key?.userId, authOn, limit }).map(serializeJobSummary);
+    const guestIp = res.locals.guestIp as string | undefined;
+    const jobs = deps.store.listJobs({ keyId: key?.id, userId: key?.userId, guestIp, authOn, limit }).map(serializeJobSummary);
     res.json({ jobs });
   });
 
   app.get('/v1/jobs/:jobId', requireUser, (req, res) => {
     const job = deps.store.getJob(req.params.jobId);
-    if (!job || !canReadJob(job.options, res.locals.apiKey as AuthKey | undefined, authOn)) {
+    if (!job || !canReadJob(job.options, res, authOn)) {
       return res.status(404).json({ error: 'Job not found' });
     }
     res.json(serializeJob(job));
@@ -463,7 +550,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.get('/v1/jobs/:jobId/export.jsonl', requireUser, (req, res) => {
     const job = deps.store.getJob(req.params.jobId);
-    if (!job || !canReadJob(job.options, res.locals.apiKey as AuthKey | undefined, authOn)) {
+    if (!job || !canReadJob(job.options, res, authOn)) {
       return res.status(404).json({ error: 'Job not found' });
     }
     if (job.status !== 'completed') {
@@ -477,7 +564,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.get('/status/:jobId', requireUser, (req, res) => {
     const job = deps.store.getJob(req.params.jobId);
-    if (!job || !canReadJob(job.options, res.locals.apiKey as AuthKey | undefined, authOn)) {
+    if (!job || !canReadJob(job.options, res, authOn)) {
       return res.status(404).json({ error: 'Job not found' });
     }
     res.json(serializeJob(job));
@@ -508,16 +595,29 @@ export function createApp(deps: AppDeps): Express {
 
 function keyOptions(res: Response): Record<string, unknown> {
   const key = res.locals.apiKey as AuthKey | undefined;
-  return key ? { keyId: key.id, ...(key.userId ? { userId: key.userId } : {}) } : {};
+  if (key) {
+    return { keyId: key.id, ...(key.userId ? { userId: key.userId } : {}) };
+  }
+  if (res.locals.isGuestDemo) {
+    return { guestIp: res.locals.guestIp, isGuest: true };
+  }
+  return {};
 }
 
-function canReadJob(options: Record<string, unknown>, key: AuthKey | undefined, authOn: boolean): boolean {
+function canReadJob(options: Record<string, unknown>, res: Response, authOn: boolean): boolean {
   if (!authOn) return true;
+  const key = res.locals.apiKey as AuthKey | undefined;
   const owner = typeof options.keyId === 'string' ? options.keyId : null;
   const ownerUser = typeof options.userId === 'string' ? options.userId : null;
-  if (!key) return false;
-  if (key.userId && ownerUser) return key.userId === ownerUser;
-  return Boolean(owner && owner === key.id);
+  if (key) {
+    if (key.userId && ownerUser) return key.userId === ownerUser;
+    return Boolean(owner && owner === key.id);
+  }
+  if (options.isGuest && options.guestIp) {
+    const currentGuestIp = (res.locals.guestIp as string | undefined) ?? getClientIp(res.req as Request);
+    return options.guestIp === currentGuestIp;
+  }
+  return false;
 }
 
 function readCookie(header: string | undefined, name: string): string | undefined {

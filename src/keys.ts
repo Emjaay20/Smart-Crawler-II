@@ -33,6 +33,12 @@ export interface KeyUsage extends AuthKey {
   remaining: number;
 }
 
+export interface GuestUsage {
+  used: number;
+  remaining: number;
+  allowed: boolean;
+}
+
 const DEFAULT_DAILY_LIMIT = 50;
 
 export class KeyStore {
@@ -49,7 +55,13 @@ export class KeyStore {
         used_on TEXT,
         revoked INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
-      )
+      );
+      CREATE TABLE IF NOT EXISTS guest_ip_limits (
+        ip TEXT NOT NULL,
+        used_on TEXT NOT NULL,
+        used_count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (ip, used_on)
+      );
     `);
     const columns = this.db.prepare('PRAGMA table_info(api_keys)').all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === 'user_id')) {
@@ -122,6 +134,46 @@ export class KeyStore {
       UPDATE api_keys SET used_today = ?, used_on = ? WHERE id = ?
     `).run(next, day, id);
     return { ok: true, remaining: row.dailyLimit - next };
+  }
+
+  getGuestUsage(ip: string, day = utcDay(new Date()), limit = 2): GuestUsage {
+    const normalizedIp = ip.trim().toLowerCase();
+    const row = this.db.prepare(`
+      SELECT used_count AS usedCount FROM guest_ip_limits WHERE ip = ? AND used_on = ?
+    `).get(normalizedIp, day) as { usedCount: number } | undefined;
+    const used = row ? row.usedCount : 0;
+    const remaining = Math.max(0, limit - used);
+    return {
+      used,
+      remaining,
+      allowed: used < limit,
+    };
+  }
+
+  consumeGuest(ip: string, day = utcDay(new Date()), limit = 2): { ok: boolean; used: number; remaining: number } {
+    const normalizedIp = ip.trim().toLowerCase();
+    const current = this.getGuestUsage(normalizedIp, day, limit);
+    if (!current.allowed) {
+      return { ok: false, used: current.used, remaining: 0 };
+    }
+    const next = current.used + 1;
+    this.db.prepare(`
+      INSERT INTO guest_ip_limits (ip, used_on, used_count)
+      VALUES (?, ?, ?)
+      ON CONFLICT(ip, used_on) DO UPDATE SET used_count = excluded.used_count
+    `).run(normalizedIp, day, next);
+
+    return { ok: true, used: next, remaining: Math.max(0, limit - next) };
+  }
+
+  resetGuest(ip?: string, day?: string): void {
+    if (ip && day) {
+      this.db.prepare('DELETE FROM guest_ip_limits WHERE ip = ? AND used_on = ?').run(ip.trim().toLowerCase(), day);
+    } else if (ip) {
+      this.db.prepare('DELETE FROM guest_ip_limits WHERE ip = ?').run(ip.trim().toLowerCase());
+    } else {
+      this.db.prepare('DELETE FROM guest_ip_limits').run();
+    }
   }
 
   revoke(id: string): boolean {

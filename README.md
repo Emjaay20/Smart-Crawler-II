@@ -154,6 +154,7 @@ Env:
 - `SMARTCRAWL_OIDC_CLIENT_SECRET` — optional client secret for the server-side web client
 - `SMARTCRAWL_OIDC_REDIRECT_URI` — exact callback URL, for example `https://smart-crawler.example.com/auth/callback`
 - `SMARTCRAWL_FREE_DAILY_LIMIT` — daily job allowance for a newly created account key (default `25`)
+- `SMARTCRAWL_GUEST_DEMO_LIMIT` — free trial scrapes allowed per client IP before requiring account sign-in (default `2`)
 
 ## Auth (multiple users)
 

@@ -81,9 +81,17 @@ export interface OperationalReport {
   metrics: OpsStats;
 }
 
+export interface GuestInfo {
+  limit: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+}
+
 export interface MeInfo {
   authenticated: boolean;
   authRequired: boolean;
+  guest?: GuestInfo;
   key: {
     id: string;
     name: string;

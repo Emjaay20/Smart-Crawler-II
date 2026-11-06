@@ -50,6 +50,7 @@ const app = createApp({
   metrics,
   firecrawlConfigured: Boolean(firecrawl),
   proxyConfigured,
+  guestDemoLimit: Math.max(0, Number(process.env.SMARTCRAWL_GUEST_DEMO_LIMIT ?? 2)),
   scrape: (request) => scrape(request, scrapeDeps),
   map: (request) => mapSite(request, scrapeDeps),
   crawl: (request, hooks) => crawlSite(request, { ...scrapeDeps, ...hooks }),
