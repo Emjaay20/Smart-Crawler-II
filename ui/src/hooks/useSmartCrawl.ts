@@ -147,7 +147,10 @@ const apiBase = () => import.meta.env.VITE_API_URL ?? '';
 
 function authHeaders(apiKey?: string): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const trimmed = apiKey?.trim();
+  if (trimmed && trimmed !== 'null' && trimmed !== 'undefined') {
+    headers.Authorization = `Bearer ${trimmed}`;
+  }
   return headers;
 }
 
@@ -225,7 +228,11 @@ export const useSmartCrawl = () => {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error((body as { error?: string }).error || 'Failed to start job');
+        const errMsg = (body as { error?: string }).error || 'Failed to start job';
+        if (res.status === 401 && errMsg.toLowerCase().includes('invalid api key')) {
+          localStorage.removeItem('smartcrawl.apiKey');
+        }
+        throw new Error(errMsg);
       }
       const { jobId } = await res.json() as { jobId: string };
       setActiveJobId(jobId);
@@ -284,7 +291,12 @@ export async function fetchOpsStats(apiKey?: string): Promise<OpsStats | null> {
 export async function fetchMe(apiKey?: string): Promise<MeInfo | null> {
   try {
     const res = await fetch(`${apiBase()}/v1/me`, { headers: authHeaders(apiKey) });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.status === 401 && apiKey) {
+        localStorage.removeItem('smartcrawl.apiKey');
+      }
+      return null;
+    }
     return await res.json() as MeInfo;
   } catch {
     return null;

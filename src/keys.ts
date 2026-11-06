@@ -257,7 +257,9 @@ export function utcDay(date: Date): string {
 export function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const match = /^Bearer\s+(\S+)/i.exec(header.trim());
-  return match?.[1] ?? null;
+  const token = match?.[1] ?? null;
+  if (!token || token === 'null' || token === 'undefined' || token === '""') return null;
+  return token;
 }
 
 export function safeEqualToken(actual: string | null | undefined, expected: string | undefined): boolean {

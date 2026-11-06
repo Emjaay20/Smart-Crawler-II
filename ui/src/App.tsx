@@ -116,7 +116,10 @@ export default function CrawlerInterface() {
   const [mode, setMode] = useState<JobMode>('scrape');
   const [limit, setLimit] = useState(5);
   const [excludePathsInput, setExcludePathsInput] = useState('');
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('smartcrawl.apiKey') ?? '');
+  const [apiKey, setApiKey] = useState(() => {
+    const saved = localStorage.getItem('smartcrawl.apiKey');
+    return (saved && saved !== 'null' && saved !== 'undefined') ? saved : '';
+  });
   const [mintingKey, setMintingKey] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [ops, setOps] = useState<OpsStats | null>(null);
@@ -160,9 +163,19 @@ export default function CrawlerInterface() {
   };
 
   const refreshTelemetry = useCallback((overrideKey?: string) => {
-    const key = (overrideKey ?? apiKey).trim() || undefined;
+    const rawKey = overrideKey !== undefined ? overrideKey : apiKey;
+    const key = (rawKey && rawKey !== 'null' && rawKey !== 'undefined') ? rawKey.trim() : undefined;
     void fetchOpsStats(key).then(setOps);
-    void fetchMe(key).then(setMe);
+    void fetchMe(key).then((res) => {
+      if (key && (!res || res.authenticated === false)) {
+        localStorage.removeItem('smartcrawl.apiKey');
+        setApiKey('');
+        void fetchMe(undefined).then(setMe);
+        void fetchRecentJobs(undefined, 10).then(setRecentJobs);
+        return;
+      }
+      setMe(res);
+    });
     void fetchRecentJobs(key, 10).then(setRecentJobs);
     void fetchAccountSession().then((session) => {
       setAccount(session);
@@ -703,18 +716,33 @@ export default function CrawlerInterface() {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[11px] text-slate-400">
-                        Bearer API Key {me?.authRequired ? '(required)' : '(optional in open mode)'}
+                        Bearer API Key {me?.authRequired ? '(leave blank for demo)' : '(optional in open mode)'}
                       </label>
-                      {!me?.authRequired && (
-                        <button
-                          type="button"
-                          onClick={handleMintDemoKey}
-                          disabled={mintingKey}
-                          className="text-[11px] text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
-                        >
-                          {mintingKey ? 'Minting…' : '+ Generate Demo Key (25/day)'}
-                        </button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {apiKey && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApiKey('');
+                              localStorage.removeItem('smartcrawl.apiKey');
+                              refreshTelemetry('');
+                            }}
+                            className="text-[11px] text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                          >
+                            Clear (Use Demo)
+                          </button>
+                        )}
+                        {!me?.authRequired && (
+                          <button
+                            type="button"
+                            onClick={handleMintDemoKey}
+                            disabled={mintingKey}
+                            className="text-[11px] text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                          >
+                            {mintingKey ? 'Minting…' : '+ Generate Demo Key (25/day)'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <input
                       type="text"
