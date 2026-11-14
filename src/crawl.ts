@@ -9,6 +9,8 @@ export const DEFAULT_MAP_LIMIT = 50;
 export const MAX_MAP_LIMIT = 200;
 export const DEFAULT_CRAWL_LIMIT = 5;
 export const MAX_CRAWL_LIMIT = 20;
+/** Bound the discovered URL frontier independently of the successful-page limit. */
+export const MAX_CRAWL_FRONTIER = 500;
 
 export interface DiscoverRequest {
   url: string;
@@ -172,6 +174,7 @@ export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}):
           continue;
         }
         if (seen.has(normalized) || queued.has(normalized)) continue;
+        if (queue.length >= MAX_CRAWL_FRONTIER) break;
         queued.add(normalized);
         queue.push(normalized);
       }
