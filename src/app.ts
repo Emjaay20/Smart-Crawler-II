@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isIP } from 'node:net';
 import { SlackReporter } from './alerts.js';
+import { AuditStore } from './audit.js';
 import { AccountStore, type Account } from './accounts.js';
 import type { CrawledPage, CrawlResult, DiscoverRequest, MapResult, CrawlCheckpointV1 } from './crawl.js';
 import { classifyError } from './errors.js';
@@ -69,6 +70,7 @@ function trustedProxyCidrs(input: string[]): string[] {
 
 export function createApp(deps: AppDeps): Express {
   const metrics = deps.metrics ?? new Metrics();
+  const audit = new AuditStore(deps.store.db);
   const alerts = deps.alerts ?? new SlackReporter();
   const maxConcurrent = Math.max(1, deps.maxConcurrentJobs ?? (Number(process.env.MAX_CONCURRENT_JOBS) || 4));
   const guestDemoLimit = Math.max(
@@ -119,7 +121,9 @@ export function createApp(deps: AppDeps): Express {
     next();
   });
 
-  const authOn = Boolean(deps.adminToken && deps.keys);
+  // API-key verification must not depend on a separately configured admin token.
+  // Missing admin credentials disable admin routes, never public API authentication.
+  const authOn = Boolean(deps.keys);
 
   const ensureGuestSession = (req: Request, res: Response): string => {
     const known = deps.keys?.authenticateGuestSession(readCookie(req.headers.cookie, 'smartcrawl_guest'));
@@ -352,6 +356,7 @@ export function createApp(deps: AppDeps): Express {
     const body = (req.body ?? {}) as { name?: unknown };
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 64) : 'default';
     const issued = deps.keys.createKey(name, freeDailyLimit, account.id);
+    audit.record('account.key.created', 'account', issued.id, account.id);
     res.status(201).json({
       id: issued.id,
       name: issued.name,
@@ -368,6 +373,7 @@ export function createApp(deps: AppDeps): Express {
       return res.status(404).json({ error: 'API key not found', code: 'not_found' });
     }
     deps.keys.revoke(req.params.id);
+    audit.record('account.key.revoked', 'account', req.params.id, account.id);
     res.json({ id: req.params.id, revoked: true });
   });
 
@@ -397,6 +403,7 @@ export function createApp(deps: AppDeps): Express {
     const name = typeof body.name === 'string' ? body.name : 'unnamed';
     const dailyLimit = typeof body.dailyLimit === 'number' ? body.dailyLimit : 50;
     const issued = deps.keys.createKey(name, dailyLimit);
+    audit.record('admin.key.created', 'admin', issued.id);
     res.status(201).json({
       id: issued.id,
       name: issued.name,
@@ -404,6 +411,12 @@ export function createApp(deps: AppDeps): Express {
       prefix: issued.prefix,
       dailyLimit: issued.dailyLimit,
     });
+  });
+
+  app.get('/v1/admin/audit', requireAdmin, (req, res) => {
+    const requested = Number(req.query.limit ?? 50);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ events: audit.list(requested) });
   });
 
   app.get('/v1/admin/keys', requireAdmin, (_req, res) => {
@@ -417,6 +430,7 @@ export function createApp(deps: AppDeps): Express {
     if (!ok) {
       return res.status(404).json({ error: 'API key not found', code: 'not_found' });
     }
+    audit.record('admin.key.revoked', 'admin', req.params.id);
     res.json({ id: req.params.id, revoked: true });
   });
 
@@ -541,6 +555,7 @@ export function createApp(deps: AppDeps): Express {
         code: 'resume_not_allowed',
       });
       if (resumed.created) {
+        audit.record('admin.crawl.resumed', 'admin', resumed.job.id);
         const parsed = parseAndValidateDiscoverBody(resumed.job.options);
         if (!parsed.ok || parsed.value.url !== resumed.job.url || parsed.value.proxy) {
           deps.store.failUnclaimed(resumed.job.id, 'Invalid persisted crawl resume request');
