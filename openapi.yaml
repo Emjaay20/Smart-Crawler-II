@@ -277,7 +277,15 @@ components:
               type: integer
             crawlDelayMs:
               type: integer
-              description: Politeness delay between requests to the same origin in ms (with randomized jitter).
+              minimum: 0
+              maximum: 60000
+              description: Minimum delay in milliseconds between page-request starts on one origin (default 250).
+            concurrency:
+              type: integer
+              minimum: 1
+              maximum: 4
+              default: 1
+              description: Maximum simultaneous per-crawl page tasks; requests still obey per-origin start spacing.
             includePaths:
               type: array
               items:
