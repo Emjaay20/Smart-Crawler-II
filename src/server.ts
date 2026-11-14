@@ -20,7 +20,10 @@ const dbPath = process.env.JOBS_DB ?? path.join(__dirname, '../data/jobs.sqlite'
 const publicDir = process.env.PUBLIC_DIR ?? path.join(__dirname, '../ui/dist');
 
 const store = new JobStore(dbPath);
-store.recoverStaleJobs();
+const enablePendingRecovery = process.env.SMARTCRAWL_ENABLE_PENDING_RECOVERY === 'true';
+const recoverySummary = enablePendingRecovery
+  ? store.prepareRestartRecovery()
+  : { recoverablePending: 0, markedFailed: store.recoverStaleJobs() };
 
 const keys = new KeyStore(store.db);
 const accounts = new AccountStore(store.db);
@@ -58,6 +61,15 @@ const app = createApp({
 const server = app.listen(PORT, HOST, () => {
   console.log(`SmartCrawl listening on http://${HOST}:${PORT}`);
 });
+// Only opt-in, exclusively-owned SQLite deployments may resume unclaimed work.
+if (enablePendingRecovery) {
+  const scheduled = (app.locals.resumePendingCrawls as () => number)();
+  console.info('Pending crawl recovery:', {
+    markedFailed: recoverySummary.markedFailed,
+    recoverablePending: recoverySummary.recoverablePending,
+    scheduled,
+  });
+}
 
 function resolveAdminToken(sqlitePath: string): string | undefined {
   const fromEnv = process.env.SMARTCRAWL_ADMIN_TOKEN?.trim();
