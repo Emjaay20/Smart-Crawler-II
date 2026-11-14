@@ -118,6 +118,12 @@ Successful `data`:
 
 Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
 
+## Administrative audit and key authentication (Phase 5 draft)
+
+When API keys are configured, SmartCrawl now requires an authorized key or configured guest-demo allowance even if the administrator token is absent. Selected key operations and administrator-approved crawl resumption write credential-free audit records to SQLite. Administrators can query the bounded `GET /v1/admin/audit` endpoint with their bearer token.
+
+This is **not** an immutable compliance-grade audit system. See [Phase 5 security and audit notes](./docs/engineering/PHASE5_AUTH_AUDIT.md).
+
 ## SDK request deadlines (Phase 4 draft)
 
 The TypeScript SDK now supports `requestTimeoutMs` (default 15 seconds) and `pollIntervalMs` (default 250ms). `waitForJob(jobId, timeoutMs)` enforces an overall time budget, and HTTP errors preserve structured status and code. SDK requests reject redirects by default.
