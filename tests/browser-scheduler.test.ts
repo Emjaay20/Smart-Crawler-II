@@ -61,7 +61,7 @@ describe('bounded browser task scheduling', () => {
   });
 
   it('clamps invalid and excessive environment values', () => {
-    expect(browserSchedulerLimits({})).toEqual({ concurrency: 2, maxPending: 24 });
+    expect(browserSchedulerLimits({})).toEqual({ concurrency: 1, maxPending: 24 });
     expect(browserSchedulerLimits({
       SMARTCRAWL_BROWSER_CONCURRENCY: '100',
       SMARTCRAWL_BROWSER_MAX_PENDING: '10000',
@@ -69,7 +69,7 @@ describe('bounded browser task scheduling', () => {
     expect(browserSchedulerLimits({
       SMARTCRAWL_BROWSER_CONCURRENCY: 'abc',
       SMARTCRAWL_BROWSER_MAX_PENDING: '-3',
-    })).toEqual({ concurrency: 2, maxPending: 24 });
+    })).toEqual({ concurrency: 1, maxPending: 24 });
     expect(() => new BoundedTaskScheduler(0, 2)).toThrow(RangeError);
   });
 });
