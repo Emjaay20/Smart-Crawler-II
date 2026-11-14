@@ -118,6 +118,12 @@ Successful `data`:
 
 Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
 
+## Safe pending-crawl recovery (Phase 3 draft)
+
+The optional `SMARTCRAWL_ENABLE_PENDING_RECOVERY=true` setting resumes **explicitly eligible, never-started local crawl jobs** from the SQLite database after restart. A pending job is atomically claimed once and retains its original job ID. Interrupted running crawls are **not** automatically replayed because their requests may already have reached the target website. Replay attempts are limited to three startup opportunities.
+
+The flag is disabled by default and **requires an exclusive single-instance SQLite deployment**. It is not an exactly-once distributed queue and it does not resume partial pages. See the [recovery design and staging checklist](./docs/engineering/PHASE3_PENDING_RECOVERY.md) before enabling it.
+
 ## Bounded concurrent crawling (Phase 3 draft)
 
 `/v1/crawl` supports an optional `concurrency` setting (integer 1–4, default 1) and a per-origin start-spacing `crawlDelayMs` (0–60,000ms, default 250ms). The crawler uses deterministic breadth-first batches with a maximum of 20 successful pages. It rejects cross-origin links, including alternate ports on the same hostname.
