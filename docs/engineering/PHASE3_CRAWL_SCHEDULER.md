@@ -15,7 +15,7 @@
 2. Child pages run in breadth-first **batches** of at most `concurrency` tasks and at most the remaining number of successful page slots. The default is 1 and the hard maximum is 4.
 3. Each batch fully settles before appending new discovered links. This preserves deterministic BFS output order even if requests finish in a different order.
 4. A per-crawl `PerOriginStartGate` serializes the *start reservations* for requests to the same origin, but the network work itself can overlap. The default minimum request-start spacing is 250ms; callers may set `crawlDelayMs` to 0–60,000ms.
-5. URLs are canonicalized before deduplication, paths are filtered, and exact origins (including port) must match.
+5. URLs are canonicalized before deduplication, paths are filtered, and exact origins (including port) must match. The in-memory discovered frontier is capped at **500 candidate URLs** to avoid unbounded queue growth on pages containing huge link lists.
 6. Failure of the seed request rejects the crawl. An unsuccessful non-seed page does not consume a successful-page slot; the crawler continues to other candidates.
 7. On-page callbacks run in deterministic result order after the batch joins.
 
