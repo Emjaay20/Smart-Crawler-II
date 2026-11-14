@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-14  
 **Implementation branch:** `phase2/browser-bounded-recovery-20261114`  
-**Base:** `integration/p1-security-combined-20261114`  
+**Dependency:** `integration/p1-security-combined-20261114` (Phase 1 branch). Draft PR #5 targets `main` only to activate the existing GitHub Actions pull-request CI filter; the reviewable Phase 2-only diff is the comparison against the integration branch. **Do not merge Phase 2 independently of approved Phase 1 controls.**  
 **Status:** Draft feature, mock-backed tests; CI and external Playwright validation required.
 
 ## Goal
