@@ -34,7 +34,8 @@ Guest quota consumption and guest job ownership have different security needs. A
 
 ## Behavioral and compatibility changes
 
-- Guest clients need to preserve the `smartcrawl_guest` cookie across requests to read their own job results. Non-browser SDK clients must manage the cookie explicitly or authenticate using an API key.
+- Guests need to preserve the `smartcrawl_guest` cookie to read their own results. The bundled Node.js SmartCrawl SDK automatically bootstraps and retains one cookie per client instance; concurrent first scrapes share that session. Other non-browser HTTP clients must manage cookies explicitly or authenticate using an API key.
+- The browser dashboard works with same-origin cookies. Cross-origin dashboard hosting requires a separately reviewed credentialed CORS allowlist and compatible SameSite/HTTPS cookie policy; it is not enabled by these changes.
 - IP-only legacy guest jobs are not accessible through the guest endpoint after the change.
 - The default reverse-proxy trust behavior is stricter than before; hosted deployments must review the proxy allowlist and rate-limiting policy before release.
 
