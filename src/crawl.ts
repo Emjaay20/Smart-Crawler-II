@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { scrape, type ScrapeDeps } from './scrape.js';
 import { createSafeFetch } from './egress.js';
 import { DomainPolitenessLimiter } from './circuit.js';
@@ -49,7 +50,66 @@ export interface CrawlResult {
   pages: CrawledPage[];
 }
 
+export interface CrawlCheckpointV1 {
+  version: 1;
+  seed: string;
+  requestKey: string;
+  pages: CrawledPage[];
+  queue: string[];
+  seen: string[];
+}
+
+/** The fingerprint covers every option that changes crawl results or ordering. */
+export function crawlRequestKey(request: DiscoverRequest): string {
+  const normalized = {
+    seed: canonicalizeUrl(request.url),
+    limit: clamp(request.limit ?? DEFAULT_CRAWL_LIMIT, 1, MAX_CRAWL_LIMIT),
+    concurrency: clamp(request.concurrency ?? (Number(process.env.SMARTCRAWL_CRAWL_CONCURRENCY) || 1), 1, 4),
+    crawlDelayMs: typeof request.crawlDelayMs === 'number' && Number.isFinite(request.crawlDelayMs) && request.crawlDelayMs >= 0
+      ? Math.min(request.crawlDelayMs, 60_000) : 250,
+    includePaths: request.includePaths ?? [],
+    excludePaths: request.excludePaths ?? [],
+    timeoutMs: request.timeoutMs ?? null,
+    userAgent: request.userAgent ?? null,
+    js: request.js ?? false,
+    proxy: request.proxy ?? null,
+  };
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+/** Fail closed if a persisted frontier is corrupt or belongs to another request. */
+export function validateCrawlCheckpoint(request: DiscoverRequest, data: unknown): CrawlCheckpointV1 {
+  const value = data as Partial<CrawlCheckpointV1> | null;
+  const seed = canonicalizeUrl(request.url);
+  const limit = clamp(request.limit ?? DEFAULT_CRAWL_LIMIT, 1, MAX_CRAWL_LIMIT);
+  if (!value || value.version !== 1 || value.seed !== seed ||
+      value.requestKey !== crawlRequestKey(request) ||
+      !Array.isArray(value.pages) || !Array.isArray(value.queue) || !Array.isArray(value.seen) ||
+      value.pages.length > limit || value.queue.length > MAX_CRAWL_FRONTIER ||
+      value.seen.length > 1000) {
+    throw new Error('Invalid or incompatible persisted crawl checkpoint');
+  }
+  const checkUrls = (values: unknown[]) => values.every((url) => {
+    if (typeof url !== 'string') return false;
+    try { return canonicalizeUrl(url) === url && sameOrigin(seed, url); }
+    catch { return false; }
+  });
+  if (!checkUrls(value.queue) || !checkUrls(value.seen) ||
+      new Set(value.queue).size !== value.queue.length ||
+      new Set(value.seen).size !== value.seen.length ||
+      value.queue.some((url) => value.seen!.includes(url)) ||
+      value.pages.some((page) => !page || typeof page.url !== 'string' ||
+        typeof page.statusCode !== 'number' || !Number.isInteger(page.statusCode))) {
+    throw new Error('Corrupt crawl checkpoint frontier or page records');
+  }
+  return value as CrawlCheckpointV1;
+}
+
 export interface CrawlDeps extends ScrapeDeps {
+  /** Only supplied by an application after authenticated, explicit resumption. */
+  checkpoint?: CrawlCheckpointV1;
+  /** Called once per settled BFS batch; must persist atomically or reject. */
+  onCheckpoint?: (checkpoint: CrawlCheckpointV1) => void | Promise<void>;
   onPage?: (page: CrawledPage, index: number, limit: number) => void;
   politenessLimiter?: DomainPolitenessLimiter;
 }
@@ -104,10 +164,11 @@ export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}):
     typeof request.crawlDelayMs === 'number' && Number.isFinite(request.crawlDelayMs) && request.crawlDelayMs >= 0
       ? Math.min(request.crawlDelayMs, 60_000) : 250;
   const gate = new PerOriginStartGate(limiter, crawlDelayMs);
-  const queue: string[] = [seed];
-  const queued = new Set<string>([seed]);
-  const seen = new Set<string>();
-  const pages: CrawledPage[] = [];
+  const prior = deps.checkpoint ? validateCrawlCheckpoint(request, deps.checkpoint) : undefined;
+  const queue: string[] = prior ? [...prior.queue] : [seed];
+  const queued = new Set<string>(queue);
+  const seen = new Set<string>(prior?.seen ?? []);
+  const pages: CrawledPage[] = prior ? [...prior.pages] : [];
 
   while (queue.length && pages.length < limit) {
     const batch: string[] = [];
@@ -178,6 +239,16 @@ export async function crawlSite(request: DiscoverRequest, deps: CrawlDeps = {}):
         queued.add(normalized);
         queue.push(normalized);
       }
+    }
+    if (deps.onCheckpoint) {
+      await deps.onCheckpoint({
+        version: 1,
+        seed,
+        requestKey: crawlRequestKey(request),
+        pages: [...pages],
+        queue: [...queue],
+        seen: [...seen],
+      });
     }
   }
 
