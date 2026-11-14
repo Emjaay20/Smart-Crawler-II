@@ -2,6 +2,7 @@ import cors from 'cors';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { isIP } from 'node:net';
 import { SlackReporter } from './alerts.js';
 import { AccountStore, type Account } from './accounts.js';
 import type { CrawledPage, CrawlResult, DiscoverRequest, MapResult } from './crawl.js';
@@ -34,17 +35,30 @@ export interface AppDeps {
   guestDemoLimit?: number;
   firecrawlConfigured?: boolean;
   proxyConfigured?: boolean;
+  /** CIDRs for reverse proxies that may legitimately supply X-Forwarded-For. */
+  trustedProxies?: string[];
 }
 
 export function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
+  // Express resolves req.ip from the socket and explicitly trusted proxy hops.
+  // Never read an untrusted X-Forwarded-For header directly.
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function trustedProxyCidrs(input: string[]): string[] {
+  const values = input.map((value) => value.trim()).filter(Boolean);
+  for (const value of values) {
+    const parts = value.split('/');
+    const address = parts[0] ?? '';
+    const family = isIP(address);
+    const prefix = parts.length === 2 ? Number(parts[1]) : undefined;
+    const max = family === 4 ? 32 : family === 6 ? 128 : 0;
+    if (!family || parts.length > 2 || (parts.length === 2 &&
+      (!Number.isInteger(prefix) || prefix! < 1 || prefix! > max))) {
+      throw new Error('SMARTCRAWL_TRUSTED_PROXIES must contain explicit IP addresses or non-zero CIDRs');
+    }
   }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0].trim();
-  }
-  return req.ip || req.socket.remoteAddress || '127.0.0.1';
+  return values;
 }
 
 export function createApp(deps: AppDeps): Express {
@@ -86,6 +100,10 @@ export function createApp(deps: AppDeps): Express {
   };
 
   const app = express();
+  const trustedProxies = trustedProxyCidrs(
+    deps.trustedProxies ?? (process.env.SMARTCRAWL_TRUSTED_PROXIES?.split(',') ?? []),
+  );
+  if (trustedProxies.length > 0) app.set('trust proxy', trustedProxies);
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
   app.use((_req, res, next) => {
@@ -96,6 +114,21 @@ export function createApp(deps: AppDeps): Express {
   });
 
   const authOn = Boolean(deps.adminToken && deps.keys);
+
+  const ensureGuestSession = (req: Request, res: Response): string => {
+    const known = deps.keys?.authenticateGuestSession(readCookie(req.headers.cookie, 'smartcrawl_guest'));
+    if (known) return known.id;
+    const issued = deps.keys!.createGuestSession();
+    res.cookie('smartcrawl_guest', issued.token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      secure: req.secure || process.env.SMARTCRAWL_COOKIE_SECURE === 'true' ||
+        process.env.NODE_ENV === 'production',
+    });
+    return issued.id;
+  };
   const freeDailyLimit = Math.max(1, deps.freeDailyLimit ?? (Number(process.env.SMARTCRAWL_FREE_DAILY_LIMIT) || 25));
 
   app.get('/health', (_req, res) => {
@@ -127,23 +160,13 @@ export function createApp(deps: AppDeps): Express {
     }
 
     if (guestDemoLimit > 0) {
-      const clientIp = getClientIp(req);
-      const day = utcDay(new Date());
-      const guestUsage = deps.keys.getGuestUsage(clientIp, day, guestDemoLimit);
-
-      if (guestUsage.allowed) {
-        res.locals.isGuestDemo = true;
-        res.locals.guestIp = clientIp;
-        res.locals.guestDay = day;
-        return next();
-      }
-
-      return res.status(401).json({
-        error: `Free demo limit reached (${guestUsage.used}/${guestDemoLimit}). Please sign in to create an account for 25 daily scrapes.`,
-        code: 'demo_quota_exceeded',
-        guestLimit: guestDemoLimit,
-        guestRemaining: 0,
-      });
+      // Job reads remain available after daily quota exhaustion. Only new
+      // work consumes the per-source-IP allowance.
+      res.locals.isGuestDemo = true;
+      res.locals.guestIp = getClientIp(req);
+      res.locals.guestDay = utcDay(new Date());
+      res.locals.guestSessionId = ensureGuestSession(req, res);
+      return next();
     }
 
     return res.status(401).json({ error: 'API key required', code: 'unauthorized' });
@@ -294,6 +317,7 @@ export function createApp(deps: AppDeps): Express {
     const guestUsage = deps.keys && guestDemoLimit > 0
       ? deps.keys.getGuestUsage(clientIp, utcDay(new Date()), guestDemoLimit)
       : null;
+    if (guestUsage) ensureGuestSession(req, res);
 
     res.json({
       authenticated: false,
@@ -535,8 +559,8 @@ export function createApp(deps: AppDeps): Express {
     const rawLimit = typeof req.query.limit === 'string' ? Number(req.query.limit) : 20;
     const limit = Number.isFinite(rawLimit) ? rawLimit : 20;
     const key = res.locals.apiKey as AuthKey | undefined;
-    const guestIp = res.locals.guestIp as string | undefined;
-    const jobs = deps.store.listJobs({ keyId: key?.id, userId: key?.userId, guestIp, authOn, limit }).map(serializeJobSummary);
+    const guestSessionId = res.locals.guestSessionId as string | undefined;
+    const jobs = deps.store.listJobs({ keyId: key?.id, userId: key?.userId, guestSessionId, authOn, limit }).map(serializeJobSummary);
     res.json({ jobs });
   });
 
@@ -599,7 +623,7 @@ function keyOptions(res: Response): Record<string, unknown> {
     return { keyId: key.id, ...(key.userId ? { userId: key.userId } : {}) };
   }
   if (res.locals.isGuestDemo) {
-    return { guestIp: res.locals.guestIp, isGuest: true };
+    return { guestSessionId: res.locals.guestSessionId, isGuest: true };
   }
   return {};
 }
@@ -613,9 +637,8 @@ function canReadJob(options: Record<string, unknown>, res: Response, authOn: boo
     if (key.userId && ownerUser) return key.userId === ownerUser;
     return Boolean(owner && owner === key.id);
   }
-  if (options.isGuest && options.guestIp) {
-    const currentGuestIp = (res.locals.guestIp as string | undefined) ?? getClientIp(res.req as Request);
-    return options.guestIp === currentGuestIp;
+  if (options.isGuest && typeof options.guestSessionId === 'string') {
+    return options.guestSessionId === res.locals.guestSessionId;
   }
   return false;
 }
@@ -625,7 +648,10 @@ function readCookie(header: string | undefined, name: string): string | undefine
   for (const part of header.split(';')) {
     const index = part.indexOf('=');
     if (index < 0) continue;
-    if (part.slice(0, index).trim() === name) return decodeURIComponent(part.slice(index + 1).trim());
+    if (part.slice(0, index).trim() === name) {
+      try { return decodeURIComponent(part.slice(index + 1).trim()); }
+      catch { return undefined; }
+    }
   }
   return undefined;
 }
@@ -659,7 +685,10 @@ function parseAndValidateScrapeBody(body: unknown): ParseResult<ScrapeRequest> {
   }
 
   try {
-    validateHttpUrl(record.url.trim());
+    const target = validateHttpUrl(record.url.trim());
+    if (target.username || target.password) {
+      return { ok: false, error: 'Destination URLs may not contain credentials' };
+    }
   } catch (err) {
     if (err instanceof InvalidUrlError) {
       return { ok: false, error: err.message };
@@ -770,7 +799,7 @@ function serializeJob(job: NonNullable<ReturnType<JobStore['getJob']>>) {
     id: job.id,
     status: job.status,
     url: job.url,
-    options: job.options,
+    options: publicJobOptions(job.options),
     data: job.data,
     error: job.error?.message,
     errorCode: job.error?.code,
@@ -778,6 +807,13 @@ function serializeJob(job: NonNullable<ReturnType<JobStore['getJob']>>) {
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function publicJobOptions(options: Record<string, unknown>): Record<string, unknown> {
+  const { proxy: _proxy, keyId: _keyId, userId: _userId,
+    guestIp: _guestIp, guestSessionId: _guestSessionId,
+    isGuest: _isGuest, ...publicOptions } = options;
+  return publicOptions;
 }
 
 function serializeJobSummary(job: NonNullable<ReturnType<JobStore['getJob']>>) {
