@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
+import { validateCrawlCheckpoint, type CrawlCheckpointV1, type DiscoverRequest } from './crawl.js';
 
 export type JobStatus = 'pending' | 'crawling' | 'completed' | 'failed';
 /** Only never-started, explicitly tagged, local crawl jobs may be replayed. */
@@ -73,6 +74,17 @@ export class JobStore {
     // Migrate legacy job metadata without retaining proxy URLs that may contain
     // username/password credentials. Existing data/results remain unchanged.
     this.db.exec("UPDATE jobs SET options_json = json_remove(options_json, '$.proxy') WHERE json_valid(options_json) = 1 AND json_type(options_json, '$.proxy') IS NOT NULL;");
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS crawl_checkpoints (
+        job_id TEXT PRIMARY KEY,
+        checkpoint_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS crawl_resume_links (
+        source_job_id TEXT PRIMARY KEY,
+        child_job_id TEXT NOT NULL UNIQUE
+      );
+    `);
   }
 
   createJob(url: string, options: Record<string, unknown> = {}): Job {
@@ -259,6 +271,104 @@ export class JobStore {
       "UPDATE jobs SET status = 'failed', error_json = ?, updated_at = ? WHERE id = ? AND status = 'pending'"
     ).run(JSON.stringify({ code: 'restart_invalid_manifest', message }), Date.now(), id);
     return Number(updated.changes) === 1;
+  }
+
+  /**
+   * Commit a completed BFS batch only while this job remains claimed.
+   * A process kill before this transaction commits leaves the prior checkpoint
+   * intact; a kill after commit makes the new checkpoint durable.
+   */
+  saveCrawlCheckpoint(jobId: string, checkpoint: CrawlCheckpointV1): boolean {
+    const content = JSON.stringify(checkpoint);
+    if (Buffer.byteLength(content, 'utf8') > 8 * 1024 * 1024) {
+      throw new Error('Crawl checkpoint exceeds the 8 MiB storage budget');
+    }
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = this.db.prepare('SELECT status FROM jobs WHERE id = ?')
+        .get(jobId) as { status: string } | undefined;
+      if (current?.status !== 'crawling') {
+        this.db.exec('COMMIT');
+        return false;
+      }
+      this.db.prepare(`
+        INSERT INTO crawl_checkpoints (job_id, checkpoint_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(job_id) DO UPDATE SET
+          checkpoint_json = excluded.checkpoint_json,
+          updated_at = excluded.updated_at
+      `).run(jobId, content, Date.now());
+      this.db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  getCrawlCheckpoint(jobId: string): CrawlCheckpointV1 | null {
+    const row = this.db.prepare('SELECT checkpoint_json FROM crawl_checkpoints WHERE job_id = ?')
+      .get(jobId) as { checkpoint_json: string } | undefined;
+    return row ? JSON.parse(row.checkpoint_json) as CrawlCheckpointV1 : null;
+  }
+
+  /**
+   * Operator-confirmed *at-least-once* retry after an interrupted running crawl.
+   * Creates a new job, copies only the last committed batch checkpoint, and
+   * leaves the original failed job intact. Repeated calls are idempotent.
+   */
+  createManualCrawlResume(sourceId: string): { job: Job; created: boolean } | null {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const link = this.db.prepare('SELECT child_job_id FROM crawl_resume_links WHERE source_job_id = ?')
+        .get(sourceId) as { child_job_id: string } | undefined;
+      if (link) {
+        const job = this.getJob(link.child_job_id);
+        this.db.exec('COMMIT');
+        return job ? { job, created: false } : null;
+      }
+      const parent = this.getJob(sourceId);
+      if (!parent || parent.status !== 'failed' ||
+          parent.error?.code !== 'restart_interrupted' ||
+          parent.options.kind !== 'crawl' ||
+          parent.options.provider !== 'local' ||
+          parent.options.recoveryVersion !== 1 ||
+          'proxy' in parent.options) {
+        this.db.exec('COMMIT');
+        return null;
+      }
+      const checkpoint = this.getCrawlCheckpoint(sourceId);
+      if (!checkpoint) {
+        this.db.exec('COMMIT');
+        return null;
+      }
+      // Persisted job data is untrusted input until its origin and fingerprint
+      // match the request we intend to execute.
+      validateCrawlCheckpoint(
+        { ...parent.options, url: parent.url } as DiscoverRequest, checkpoint
+      );
+      if (checkpoint.pages.length === 0) {
+        this.db.exec('COMMIT');
+        return null;
+      }
+      const child = this.createJob(parent.url, {
+        ...parent.options,
+        resumeSourceId: sourceId,
+        pendingRecoveryAttempts: 0,
+      });
+      this.db.prepare(`
+        INSERT INTO crawl_checkpoints (job_id, checkpoint_json, updated_at)
+        VALUES (?, ?, ?)
+      `).run(child.id, JSON.stringify(checkpoint), Date.now());
+      this.db.prepare(`
+        INSERT INTO crawl_resume_links (source_job_id, child_job_id) VALUES (?, ?)
+      `).run(sourceId, child.id);
+      this.db.exec('COMMIT');
+      return { job: child, created: true };
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   setStatus(id: string, status: JobStatus): void {
