@@ -499,8 +499,6 @@ export function createApp(deps: AppDeps): Express {
     }
     if (!consumeQuotaOrReject(res)) return;
     const request = { ...parsed.value, provider: 'local' as const };
-    const crawler = deps.crawl;
-    const limit = request.limit ?? 5;
     const job = enqueue(
       deps,
       metrics,
@@ -509,22 +507,13 @@ export function createApp(deps: AppDeps): Express {
       'crawl',
       request.url,
       request,
-      keyOptions(res),
-      async (jobId) => {
-        deps.store.appendLog(jobId, { level: 'info', msg: `Crawling ${request.url} (limit ${limit})` });
-        const data = await crawler(request, {
-          onPage: (page, idx, max) => {
-            deps.store.appendLog(jobId, {
-              level: 'info',
-              msg: `[${idx}/${max}] Scraped ${page.url} (${page.statusCode})`,
-            });
-          },
-        });
-        deps.store.appendLog(jobId, { level: 'success', msg: `Crawled ${data.pages.length} pages` });
-        const totalTokens = data.pages.reduce((sum, p) => sum + (p.estimatedTokens ?? 0), 0);
-        metrics.recordCrawl(data.pages.length, totalTokens);
-        return data;
+      {
+        ...keyOptions(res),
+        // Only never-claimed, local, proxy-free crawls are eligible for
+        // replay after process restart. An in-flight job is never replayed.
+        ...(!request.proxy ? { recoveryVersion: 1, pendingRecoveryAttempts: 0 } : {}),
       },
+      makeCrawlWork(deps, metrics, request),
     );
     res.json({ jobId: job.id });
   });
@@ -613,6 +602,29 @@ export function createApp(deps: AppDeps): Express {
       res.sendFile(path.join(publicDir, 'index.html'));
     });
   }
+
+  // Explicit startup hook. The server calls this only after the SQLite
+  // recovery policy has classified stale rows. Tests may invoke it directly.
+  // Replays use the same application-wide admission queue as new jobs.
+  app.locals.resumePendingCrawls = (): number => {
+    const pending = deps.store.listRecoverablePendingCrawls();
+    let scheduled = 0;
+    for (const job of pending) {
+      const parsed = parseAndValidateDiscoverBody(job.options);
+      if (!deps.crawl || !parsed.ok || parsed.value.url !== job.url ||
+          parsed.value.proxy || job.options.provider !== 'local' ||
+          job.options.recoveryVersion !== 1) {
+        deps.store.failUnclaimed(job.id, 'Saved crawl request cannot be safely replayed');
+        continue;
+      }
+      const request = { ...parsed.value, provider: 'local' as const };
+      scheduled += 1;
+      void runWithConcurrency(() => runJob(
+        deps, metrics, alerts, job.id, job.url, makeCrawlWork(deps, metrics, request),
+      ));
+    }
+    return scheduled;
+  };
 
   return app;
 }
@@ -752,6 +764,30 @@ function parseAndValidateDiscoverBody(body: unknown): ParseResult<DiscoverReques
   return { ok: true, value: request };
 }
 
+function makeCrawlWork(
+  deps: AppDeps,
+  metrics: Metrics,
+  request: DiscoverRequest,
+): (jobId: string) => Promise<CrawlResult> {
+  return async (jobId) => {
+    if (!deps.crawl) throw new Error('Crawl worker is not configured');
+    const limit = request.limit ?? 5;
+    deps.store.appendLog(jobId, { level: 'info', msg: `Crawling ${request.url} (limit ${limit})` });
+    const data = await deps.crawl(request, {
+      onPage: (page, idx, max) => {
+        deps.store.appendLog(jobId, {
+          level: 'info',
+          msg: `[${idx}/${max}] Scraped ${page.url} (${page.statusCode})`,
+        });
+      },
+    });
+    deps.store.appendLog(jobId, { level: 'success', msg: `Crawled ${data.pages.length} pages` });
+    const totalTokens = data.pages.reduce((sum, p) => sum + (p.estimatedTokens ?? 0), 0);
+    metrics.recordCrawl(data.pages.length, totalTokens);
+    return data;
+  };
+}
+
 function enqueue(
   deps: AppDeps,
   metrics: Metrics,
@@ -778,13 +814,13 @@ async function runJob(
 ): Promise<void> {
   const started = Date.now();
   try {
-    deps.store.setStatus(jobId, 'crawling');
+    if (!deps.store.claimPending(jobId)) return;
     const data = await work(jobId);
-    deps.store.complete(jobId, data);
+    deps.store.completeClaimed(jobId, data);
   } catch (err) {
     const classified = classifyError(err);
     deps.store.appendLog(jobId, { level: 'error', msg: classified.message });
-    deps.store.fail(jobId, classified);
+    if (!deps.store.failClaimed(jobId, classified)) return;
     metrics.recordScrape({
       ok: false,
       durationMs: Date.now() - started,
@@ -820,7 +856,8 @@ function serializeJob(job: NonNullable<ReturnType<JobStore['getJob']>>) {
 function publicJobOptions(options: Record<string, unknown>): Record<string, unknown> {
   const { proxy: _proxy, keyId: _keyId, userId: _userId,
     guestIp: _guestIp, guestSessionId: _guestSessionId,
-    isGuest: _isGuest, ...publicOptions } = options;
+    isGuest: _isGuest, recoveryVersion: _recoveryVersion,
+    pendingRecoveryAttempts: _pendingRecoveryAttempts, ...publicOptions } = options;
   return publicOptions;
 }
 
