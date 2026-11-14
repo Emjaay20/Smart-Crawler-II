@@ -9,7 +9,7 @@
 
 The scheduler commits a versioned, authenticated-worker-only checkpoint after each fully settled breadth-first crawl batch, recording the completed page snapshots, ordered frontier, and visited URLs. It writes checkpoint data into the existing SQLite database with a transaction and retains the original crawl job record.
 
-**An interrupted running job is never automatically replayed.** The existing restart classifier marks it failed. An operator may later request a *new* job from its last committed checkpoint, explicitly acknowledging that HTTP requests in the interrupted, uncommitted batch may have reached the target and could be repeated. The replacement has a new job ID; the original failed job remains unchanged. This is **at-least-once request behavior**, not exactly-once execution.
+**An interrupted running job is never automatically replayed.** The normal restart handler marks it failed using an explicit `restart_interrupted` code when checkpoint capture and manual replay are both enabled. Automatic pending-job recovery remains separately disabled unless its own flag is set. An operator may later request a *new* job from its last committed checkpoint, explicitly acknowledging that HTTP requests in the interrupted, uncommitted batch may have reached the target and could be repeated. The replacement has a new job ID; the original failed job remains unchanged. This is **at-least-once request behavior**, not exactly-once execution.
 
 ## Opt-in flags
 
@@ -18,7 +18,7 @@ Both are **off by default**:
 - `SMARTCRAWL_ENABLE_CRAWL_CHECKPOINTS=true`: save a checkpoint after completed BFS batches for local, proxy-free crawl jobs.
 - `SMARTCRAWL_ENABLE_CHECKPOINT_RESUME=true`: allow explicit administrative replay from checkpoint. Requires the first flag and an operator-configured `SMARTCRAWL_ADMIN_TOKEN`.
 
-Keep the Phase 3B `SMARTCRAWL_ENABLE_PENDING_RECOVERY` policy separate. Its automatic resume path only applies to never-started `pending` jobs.
+Keep the Phase 3B `SMARTCRAWL_ENABLE_PENDING_RECOVERY` policy separate. It is **not required** for explicit checkpoint replay. With checkpoint capture/resume enabled and pending recovery off, startup fails stale jobs with an explicit interruption code but does not auto-replay them. Its automatic resume path only applies to never-started `pending` jobs.
 
 Only enable this design on an exclusive single-instance SQLite deployment. Multiple live workers sharing one file need a proper worker lease, heartbeat and fencing protocol before enabling restart behavior.
 
