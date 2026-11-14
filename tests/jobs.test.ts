@@ -92,4 +92,32 @@ describe('JobStore', () => {
     expect(allPublic).toHaveLength(2);
     store.close();
   });
+  it('does not persist proxy credentials in new jobs', () => {
+    const store = new JobStore(':memory:');
+    const proxy = 'http://operator:sample-password@proxy.example:8080';
+    const job = store.createJob('https://example.com', { kind: 'scrape', proxy });
+    expect(job.options).not.toHaveProperty('proxy');
+    expect(store.getJob(job.id)?.options).not.toHaveProperty('proxy');
+    const raw = store.db.prepare('SELECT options_json FROM jobs WHERE id = ?')
+      .get(job.id) as { options_json: string };
+    expect(raw.options_json).not.toContain('sample-password');
+    store.close();
+  });
+
+  it('scrubs previously persisted proxy URLs when reopening the job database', () => {
+    const path = tempDbPath();
+    const first = new JobStore(path);
+    const legacy = first.createJob('https://example.com', { kind: 'scrape' });
+    first.db.prepare('UPDATE jobs SET options_json = ? WHERE id = ?')
+      .run(JSON.stringify({ kind: 'scrape', proxy: 'http://operator:legacy-password@proxy.example:8080' }), legacy.id);
+    first.close();
+
+    const reopened = new JobStore(path);
+    const stored = reopened.db.prepare('SELECT options_json FROM jobs WHERE id = ?')
+      .get(legacy.id) as { options_json: string };
+    expect(stored.options_json).not.toContain('legacy-password');
+    expect(reopened.getJob(legacy.id)?.options).not.toHaveProperty('proxy');
+    reopened.close();
+  });
+
 });
