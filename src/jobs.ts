@@ -4,6 +4,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 
 export type JobStatus = 'pending' | 'crawling' | 'completed' | 'failed';
+/** Only never-started, explicitly tagged, local crawl jobs may be replayed. */
+export const MAX_PENDING_RECOVERY_ATTEMPTS = 3;
+export interface RestartRecoverySummary {
+  recoverablePending: number;
+  markedFailed: number;
+}
 
 export interface JobLog {
   time: string;
@@ -142,6 +148,117 @@ export class JobStore {
     }
 
     return stale.length;
+  }
+
+  /**
+   * Startup-only preparation for a single-writer SQLite deployment.
+   * Already-running work is NEVER automatically replayed. Untagged pending jobs
+   * and work with incomplete/unsafe replay metadata fail visibly.
+   *
+   * Each restart increments the pending-recovery counter, so repeated startup
+   * crashes cannot leave indefinitely retryable queue entries.
+   */
+  prepareRestartRecovery(reason = 'Worker interrupted by process restart'): RestartRecoverySummary {
+    const now = Date.now();
+    const timestamp = new Date(now).toISOString();
+    let recoverablePending = 0;
+    let markedFailed = 0;
+    const rows = this.db.prepare("SELECT * FROM jobs WHERE status IN ('pending', 'crawling') ORDER BY created_at, rowid")
+      .all() as unknown as JobRow[];
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const row of rows) {
+        let options: Record<string, unknown> = {};
+        try {
+          const parsed = JSON.parse(row.options_json) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            options = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // A malformed or legacy manifest is not safe to replay.
+        }
+
+        const attempts = Number.isInteger(options.pendingRecoveryAttempts)
+          && Number(options.pendingRecoveryAttempts) >= 0
+          ? Number(options.pendingRecoveryAttempts) : 0;
+        const eligible = row.status === 'pending'
+          && options.kind === 'crawl'
+          && options.provider === 'local'
+          && options.recoveryVersion === 1
+          && !('proxy' in options)
+          && attempts < MAX_PENDING_RECOVERY_ATTEMPTS;
+
+        const logs = JSON.parse(row.logs_json) as JobLog[];
+        if (eligible) {
+          logs.push({ time: timestamp, level: 'info', msg: 'Resuming unclaimed crawl after restart' });
+          options.pendingRecoveryAttempts = attempts + 1;
+          const updated = this.db.prepare(
+            "UPDATE jobs SET options_json = ?, logs_json = ?, updated_at = ? WHERE id = ? AND status = 'pending'"
+          ).run(JSON.stringify(options), JSON.stringify(logs), now, row.id);
+          recoverablePending += Number(updated.changes);
+        } else {
+          const message = row.status === 'crawling'
+            ? reason + '; in-flight crawl not replayed to avoid duplicated requests'
+            : 'Pending job cannot be safely replayed or exceeded restart attempt limit';
+          logs.push({ time: timestamp, level: 'error', msg: message });
+          const updated = this.db.prepare(
+            "UPDATE jobs SET status = 'failed', error_json = ?, logs_json = ?, updated_at = ? WHERE id = ? AND status = ?"
+          ).run(JSON.stringify({ code: 'restart_interrupted', message }), JSON.stringify(logs), now, row.id, row.status);
+          markedFailed += Number(updated.changes);
+        }
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return { recoverablePending, markedFailed };
+  }
+
+  /** Result is bounded; this query is not an ownership authorization mechanism. */
+  listRecoverablePendingCrawls(limit = 250): Job[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM jobs
+      WHERE status = 'pending'
+        AND json_valid(options_json) = 1
+        AND json_extract(options_json, '$.kind') = 'crawl'
+        AND json_extract(options_json, '$.provider') = 'local'
+        AND json_extract(options_json, '$.recoveryVersion') = 1
+      ORDER BY created_at, rowid LIMIT ?
+    `).all(Math.min(1000, Math.max(1, Math.floor(limit)))) as unknown as JobRow[];
+    return rows.map((row) => this.fromRow(row));
+  }
+
+  /** Atomic pending → running transition; a second worker cannot claim it. */
+  claimPending(id: string): boolean {
+    const result = this.db.prepare(
+      "UPDATE jobs SET status = 'crawling', updated_at = ? WHERE id = ? AND status = 'pending'"
+    ).run(Date.now(), id);
+    return Number(result.changes) === 1;
+  }
+
+  /** Ignore a late completion after another terminal state was recorded. */
+  completeClaimed(id: string, data: unknown): boolean {
+    const updated = this.db.prepare(
+      "UPDATE jobs SET status = 'completed', data_json = ?, error_json = NULL, updated_at = ? WHERE id = ? AND status = 'crawling'"
+    ).run(JSON.stringify(data), Date.now(), id);
+    return Number(updated.changes) === 1;
+  }
+
+  /** Ignore late failure writes for jobs already completed or failed. */
+  failClaimed(id: string, error: JobError): boolean {
+    const updated = this.db.prepare(
+      "UPDATE jobs SET status = 'failed', error_json = ?, updated_at = ? WHERE id = ? AND status = 'crawling'"
+    ).run(JSON.stringify(error), Date.now(), id);
+    return Number(updated.changes) === 1;
+  }
+
+  failUnclaimed(id: string, message: string): boolean {
+    const updated = this.db.prepare(
+      "UPDATE jobs SET status = 'failed', error_json = ?, updated_at = ? WHERE id = ? AND status = 'pending'"
+    ).run(JSON.stringify({ code: 'restart_invalid_manifest', message }), Date.now(), id);
+    return Number(updated.changes) === 1;
   }
 
   setStatus(id: string, status: JobStatus): void {
