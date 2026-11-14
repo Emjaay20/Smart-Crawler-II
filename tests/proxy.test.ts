@@ -33,7 +33,9 @@ describe('Proxy security & SSRF prevention', () => {
 
     const proxyUrl = 'http://egress-node.grass.io:8080';
     const priorTrust = process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+    const priorGateway = process.env.SMARTCRAWL_PROXY_URL;
     process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = 'true';
+    process.env.SMARTCRAWL_PROXY_URL = proxyUrl;
     try {
     const result = await scrape(
       {
@@ -48,6 +50,49 @@ describe('Proxy security & SSRF prevention', () => {
     } finally {
       if (priorTrust === undefined) delete process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
       else process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = priorTrust;
+      if (priorGateway === undefined) delete process.env.SMARTCRAWL_PROXY_URL;
+      else process.env.SMARTCRAWL_PROXY_URL = priorGateway;
     }
   });
+  it('rejects arbitrary per-request proxy substitution even when a trusted gateway is configured', async () => {
+    const priorTrust = process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+    const priorGateway = process.env.SMARTCRAWL_PROXY_URL;
+    process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = 'true';
+    process.env.SMARTCRAWL_PROXY_URL = 'https://approved.example:8443';
+    let requested = false;
+    const stub: typeof fetch = (async () => {
+      requested = true;
+      return new Response('unreachable');
+    }) as typeof fetch;
+    try {
+      await expect(scrape({
+        url: 'https://news.ycombinator.com',
+        proxy: 'https://attacker.example:3128',
+      }, { fetch: stub })).rejects.toMatchObject({ code: 'invalid_url' });
+      expect(requested).toBe(false);
+    } finally {
+      if (priorTrust === undefined) delete process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+      else process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = priorTrust;
+      if (priorGateway === undefined) delete process.env.SMARTCRAWL_PROXY_URL;
+      else process.env.SMARTCRAWL_PROXY_URL = priorGateway;
+    }
+  });
+
+  it('fails closed if a configured proxy gateway lacks explicit trust', async () => {
+    const priorTrust = process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+    const priorGateway = process.env.SMARTCRAWL_PROXY_URL;
+    delete process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+    process.env.SMARTCRAWL_PROXY_URL = 'https://approved.example:8443';
+    try {
+      await expect(scrape({
+        url: 'https://news.ycombinator.com',
+      })).rejects.toMatchObject({ code: 'provider_unavailable' });
+    } finally {
+      if (priorTrust === undefined) delete process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+      else process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = priorTrust;
+      if (priorGateway === undefined) delete process.env.SMARTCRAWL_PROXY_URL;
+      else process.env.SMARTCRAWL_PROXY_URL = priorGateway;
+    }
+  });
+
 });
