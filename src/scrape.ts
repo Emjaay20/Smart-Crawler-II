@@ -57,14 +57,19 @@ export function getProxyAgent(proxyUrl?: string): ProxyAgent | undefined {
 }
 
 function resolveProxyUrl(requestProxy?: string): string | undefined {
-  const candidate =
-    requestProxy?.trim() ||
-    process.env.SMARTCRAWL_PROXY_URL?.trim() ||
-    process.env.HTTPS_PROXY?.trim() ||
-    process.env.HTTP_PROXY?.trim();
-  if (!candidate) return undefined;
-  validateHttpUrl(candidate);
-  return candidate;
+  // An untrusted API caller must not select a different outbound proxy,
+  // including one whose DNS or network policy we do not control.
+  const configuredGateway = process.env.SMARTCRAWL_PROXY_URL?.trim();
+  const requestedGateway = requestProxy?.trim();
+  if (requestedGateway && requestedGateway !== configuredGateway) {
+    throw new ScrapeError('invalid_url', 'Per-request proxy selection is disabled');
+  }
+  if (!configuredGateway) return undefined;
+  if (process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS !== 'true') {
+    throw new ScrapeError('provider_unavailable', 'Proxy gateway requires explicit trusted egress configuration');
+  }
+  validateHttpUrl(configuredGateway);
+  return configuredGateway;
 }
 
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
