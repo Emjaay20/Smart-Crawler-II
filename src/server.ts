@@ -52,6 +52,8 @@ const app = createApp({
   metrics,
   firecrawlConfigured: Boolean(firecrawl),
   proxyConfigured,
+  enableCrawlCheckpoints: process.env.SMARTCRAWL_ENABLE_CRAWL_CHECKPOINTS === 'true',
+  enableCheckpointResume: process.env.SMARTCRAWL_ENABLE_CHECKPOINT_RESUME === 'true',
   guestDemoLimit: Math.max(0, Number(process.env.SMARTCRAWL_GUEST_DEMO_LIMIT ?? 2)),
   scrape: (request) => scrape(request, scrapeDeps),
   map: (request) => mapSite(request, scrapeDeps),
