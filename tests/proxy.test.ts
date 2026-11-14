@@ -32,6 +32,9 @@ describe('Proxy security & SSRF prevention', () => {
     }) as typeof fetch;
 
     const proxyUrl = 'http://egress-node.grass.io:8080';
+    const priorTrust = process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+    process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = 'true';
+    try {
     const result = await scrape(
       {
         url: 'https://news.ycombinator.com',
@@ -42,5 +45,9 @@ describe('Proxy security & SSRF prevention', () => {
 
     expect(result.success).toBe(true);
     expect(result.metadata.proxy).toBe(true);
+    } finally {
+      if (priorTrust === undefined) delete process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS;
+      else process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS = priorTrust;
+    }
   });
 });
