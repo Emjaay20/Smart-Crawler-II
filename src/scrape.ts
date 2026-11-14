@@ -1,4 +1,5 @@
 import { ProxyAgent } from 'undici';
+import { createSafeFetch } from './egress.js';
 import { detectAntiBotChallenge } from './antibot.js';
 import type { DomainCircuitBreaker } from './circuit.js';
 import { extractFromHtml } from './extract.js';
@@ -79,7 +80,7 @@ const BLOCKED_CONTENT_PREFIXES = [
 
 export async function scrape(request: ScrapeRequest, deps: ScrapeDeps = {}): Promise<ScrapeResult> {
   const started = (deps.now ?? Date.now)();
-  const fetchImpl = deps.fetch ?? fetch;
+  const fetchImpl = createSafeFetch(deps.fetch ?? fetch);
   const resolved = resolveRequest(request);
   const origin = new URL(resolved.url).origin;
 
