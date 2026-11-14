@@ -26,7 +26,8 @@
     "test": "vitest run",
     "start": "node dist/server.js",
     "start:server": "tsx src/server.ts",
-    "build": "tsc -p tsconfig.json && npm --prefix ui run build"
+    "build": "tsc -p tsconfig.json && npm --prefix ui run build",
+    "bench:crawl": "tsx scripts/benchmark-crawl.ts"
   },
   "keywords": [
     "scrape",
