@@ -28,9 +28,8 @@ const metrics = new Metrics();
 const firecrawl = FirecrawlProvider.fromEnv();
 const circuitBreaker = new DomainCircuitBreaker();
 const proxyConfigured = Boolean(
-  process.env.SMARTCRAWL_PROXY_URL?.trim() ||
-  process.env.HTTPS_PROXY?.trim() ||
-  process.env.HTTP_PROXY?.trim(),
+  process.env.SMARTCRAWL_PROXY_URL?.trim() &&
+  process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS === 'true',
 );
 const scrapeDeps = {
   renderWithBrowser: renderWithPlaywright,

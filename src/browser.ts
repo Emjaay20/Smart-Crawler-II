@@ -17,6 +17,12 @@ let browser: Browser | null = null;
 let pagesSinceLaunch = 0;
 
 export function renderWithPlaywright(url: string, request: ResolvedScrapeRequest): Promise<BrowserRender> {
+  if (process.env.SMARTCRAWL_BROWSER_EGRESS_ISOLATED !== 'true') {
+    return Promise.reject(new ScrapeError(
+      'provider_unavailable',
+      'Browser rendering requires an isolated network with enforced outbound destination filtering',
+    ));
+  }
   const run = queue.then(() => render(url, request));
   queue = run.then(() => undefined, () => undefined);
   return run;

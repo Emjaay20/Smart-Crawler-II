@@ -1,4 +1,5 @@
 import { ProxyAgent } from 'undici';
+import { createSafeFetch } from './egress.js';
 import { detectAntiBotChallenge } from './antibot.js';
 import type { DomainCircuitBreaker } from './circuit.js';
 import { extractFromHtml } from './extract.js';
@@ -56,14 +57,19 @@ export function getProxyAgent(proxyUrl?: string): ProxyAgent | undefined {
 }
 
 function resolveProxyUrl(requestProxy?: string): string | undefined {
-  const candidate =
-    requestProxy?.trim() ||
-    process.env.SMARTCRAWL_PROXY_URL?.trim() ||
-    process.env.HTTPS_PROXY?.trim() ||
-    process.env.HTTP_PROXY?.trim();
-  if (!candidate) return undefined;
-  validateHttpUrl(candidate);
-  return candidate;
+  // An untrusted API caller must not select a different outbound proxy,
+  // including one whose DNS or network policy we do not control.
+  const configuredGateway = process.env.SMARTCRAWL_PROXY_URL?.trim();
+  const requestedGateway = requestProxy?.trim();
+  if (requestedGateway && requestedGateway !== configuredGateway) {
+    throw new ScrapeError('invalid_url', 'Per-request proxy selection is disabled');
+  }
+  if (!configuredGateway) return undefined;
+  if (process.env.SMARTCRAWL_TRUSTED_PROXY_EGRESS !== 'true') {
+    throw new ScrapeError('provider_unavailable', 'Proxy gateway requires explicit trusted egress configuration');
+  }
+  validateHttpUrl(configuredGateway);
+  return configuredGateway;
 }
 
 const MAX_HTML_BYTES = 5 * 1024 * 1024;
@@ -79,7 +85,7 @@ const BLOCKED_CONTENT_PREFIXES = [
 
 export async function scrape(request: ScrapeRequest, deps: ScrapeDeps = {}): Promise<ScrapeResult> {
   const started = (deps.now ?? Date.now)();
-  const fetchImpl = deps.fetch ?? fetch;
+  const fetchImpl = createSafeFetch(deps.fetch ?? fetch);
   const resolved = resolveRequest(request);
   const origin = new URL(resolved.url).origin;
 
