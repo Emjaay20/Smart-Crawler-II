@@ -5,7 +5,7 @@ import path from 'node:path';
 import { isIP } from 'node:net';
 import { SlackReporter } from './alerts.js';
 import { AccountStore, type Account } from './accounts.js';
-import type { CrawledPage, CrawlResult, DiscoverRequest, MapResult } from './crawl.js';
+import type { CrawledPage, CrawlResult, DiscoverRequest, MapResult, CrawlCheckpointV1 } from './crawl.js';
 import { classifyError } from './errors.js';
 import { exportJobAsJsonl, type JobStore } from './jobs.js';
 import { bearerToken, safeEqualToken, utcDay, type AuthKey, type KeyStore } from './keys.js';
@@ -16,6 +16,8 @@ import { InvalidUrlError, validateHttpUrl } from './url.js';
 
 export interface CrawlHooks {
   onPage?: (page: CrawledPage, index: number, limit: number) => void;
+  checkpoint?: CrawlCheckpointV1;
+  onCheckpoint?: (checkpoint: CrawlCheckpointV1) => void | Promise<void>;
 }
 
 export interface AppDeps {
@@ -35,6 +37,10 @@ export interface AppDeps {
   guestDemoLimit?: number;
   firecrawlConfigured?: boolean;
   proxyConfigured?: boolean;
+  /** Checkpoint writes are opt-in: HTML/Markdown may contain sensitive content. */
+  enableCrawlCheckpoints?: boolean;
+  /** Requires admin token and explicit acknowledgement of at-least-once requests. */
+  enableCheckpointResume?: boolean;
   /** CIDRs for reverse proxies that may legitimately supply X-Forwarded-For. */
   trustedProxies?: string[];
 }
@@ -518,6 +524,48 @@ export function createApp(deps: AppDeps): Express {
     res.json({ jobId: job.id });
   });
 
+  app.post('/v1/admin/jobs/:id/resume', requireAdmin, (req, res) => {
+    if (!deps.enableCrawlCheckpoints || !deps.enableCheckpointResume || !deps.crawl) {
+      return res.status(403).json({ error: 'Checkpoint resumption is disabled', code: 'forbidden' });
+    }
+    if (req.body?.acknowledgePossibleRefetch !== true) {
+      return res.status(400).json({
+        error: 'Explicitly acknowledge that interrupted HTTP requests may be repeated',
+        code: 'resume_acknowledgement_required',
+      });
+    }
+    try {
+      const resumed = deps.store.createManualCrawlResume(req.params.id);
+      if (!resumed) return res.status(409).json({
+        error: 'Job is not an interrupted crawl with a valid committed checkpoint',
+        code: 'resume_not_allowed',
+      });
+      if (resumed.created) {
+        const parsed = parseAndValidateDiscoverBody(resumed.job.options);
+        if (!parsed.ok || parsed.value.url !== resumed.job.url || parsed.value.proxy) {
+          deps.store.failUnclaimed(resumed.job.id, 'Invalid persisted crawl resume request');
+          return res.status(409).json({ error: 'Persisted crawl request is invalid', code: 'resume_not_allowed' });
+        }
+        const request = { ...parsed.value, provider: 'local' as const };
+        void runWithConcurrency(() => runJob(
+          deps, metrics, alerts, resumed.job.id, resumed.job.url,
+          makeCrawlWork(deps, metrics, request),
+        ));
+      }
+      return res.status(resumed.created ? 201 : 200).json({
+        jobId: resumed.job.id,
+        parentJobId: req.params.id,
+        created: resumed.created,
+        warning: 'Uncheckpointed in-flight HTTP requests may be repeated',
+      });
+    } catch {
+      return res.status(409).json({
+        error: 'Crawl checkpoint failed integrity validation',
+        code: 'invalid_checkpoint',
+      });
+    }
+  });
+
   app.post('/crawl', requireUser, (req, res) => {
     const parsed = parseAndValidateScrapeBody(req.body);
     if (!parsed.ok) {
@@ -773,7 +821,17 @@ function makeCrawlWork(
     if (!deps.crawl) throw new Error('Crawl worker is not configured');
     const limit = request.limit ?? 5;
     deps.store.appendLog(jobId, { level: 'info', msg: `Crawling ${request.url} (limit ${limit})` });
+    const checkpointing = deps.enableCrawlCheckpoints === true && !request.proxy;
+    const savedCheckpoint = checkpointing ? deps.store.getCrawlCheckpoint(jobId) : null;
     const data = await deps.crawl(request, {
+      ...(checkpointing ? {
+        ...(savedCheckpoint ? { checkpoint: savedCheckpoint } : {}),
+        onCheckpoint: (state: CrawlCheckpointV1) => {
+          if (!deps.store.saveCrawlCheckpoint(jobId, state)) {
+            throw new Error('Checkpoint owner job is no longer running');
+          }
+        },
+      } : {}),
       onPage: (page, idx, max) => {
         deps.store.appendLog(jobId, {
           level: 'info',
@@ -856,7 +914,8 @@ function serializeJob(job: NonNullable<ReturnType<JobStore['getJob']>>) {
 function publicJobOptions(options: Record<string, unknown>): Record<string, unknown> {
   const { proxy: _proxy, keyId: _keyId, userId: _userId,
     guestIp: _guestIp, guestSessionId: _guestSessionId,
-    isGuest: _isGuest, recoveryVersion: _recoveryVersion,
+    isGuest: _isGuest, resumeSourceId: _resumeSourceId,
+    recoveryVersion: _recoveryVersion,
     pendingRecoveryAttempts: _pendingRecoveryAttempts, ...publicOptions } = options;
   return publicOptions;
 }
