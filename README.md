@@ -124,6 +124,14 @@ Direct HTTP scraping, robots.txt and sitemap requests now use validated, DNS-pin
 
 Browser rendering fails closed unless a deployment operator has **enforced outbound network isolation** and sets `SMARTCRAWL_BROWSER_EGRESS_ISOLATED=true`. Third-party proxy requests fail closed unless an operator configures the *exact* gateway URL with `SMARTCRAWL_PROXY_URL`, sets `SMARTCRAWL_TRUSTED_PROXY_EGRESS=true`, and ensures that gateway enforces destination restrictions. Per-request proxy substitution is not supported. Neither flag supplies a firewall on its own; do not enable either without the corresponding external security controls. The low-memory hosted Docker image does not include Chromium.
 
+## Browser reliability (Phase 2 draft)
+
+Browser rendering uses an in-process bounded task scheduler and per-request Playwright contexts. The safe default is a single concurrent render. Set `SMARTCRAWL_BROWSER_CONCURRENCY` (1–4, default 1) and `SMARTCRAWL_BROWSER_MAX_PENDING` (1–128, default 24) to tune resource admission. Saturated queues reject additional requests, and process shutdown drains accepted browser tasks.
+
+**Browser egress must still be enforced by the deployment network.** Setting `SMARTCRAWL_BROWSER_EGRESS_ISOLATED=true` only acknowledges the operator's external firewall/isolation policy; it is not a substitute for one. This in-process queue is not durable across restarts.
+
+See the [Phase 2 browser engineering notes](./docs/engineering/PHASE2_BROWSER_RELIABILITY.md) for test coverage, tradeoffs and real-Chromium staging requirements.
+
 ## Web-Scale Crawler & Egress Infrastructure
 
 SmartCrawl incorporates production crawler infrastructure patterned after high-throughput distributed crawling networks:
