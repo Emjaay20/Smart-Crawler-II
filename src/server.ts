@@ -21,9 +21,13 @@ const publicDir = process.env.PUBLIC_DIR ?? path.join(__dirname, '../ui/dist');
 
 const store = new JobStore(dbPath);
 const enablePendingRecovery = process.env.SMARTCRAWL_ENABLE_PENDING_RECOVERY === 'true';
+const enableCrawlCheckpoints = process.env.SMARTCRAWL_ENABLE_CRAWL_CHECKPOINTS === 'true';
+const enableCheckpointResume = process.env.SMARTCRAWL_ENABLE_CHECKPOINT_RESUME === 'true';
 const recoverySummary = enablePendingRecovery
   ? store.prepareRestartRecovery()
-  : { recoverablePending: 0, markedFailed: store.recoverStaleJobs() };
+  : { recoverablePending: 0, markedFailed: store.recoverStaleJobs(
+      undefined, enableCrawlCheckpoints && enableCheckpointResume ? 'restart_interrupted' : 'unknown',
+    ) };
 
 const keys = new KeyStore(store.db);
 const accounts = new AccountStore(store.db);
@@ -52,8 +56,8 @@ const app = createApp({
   metrics,
   firecrawlConfigured: Boolean(firecrawl),
   proxyConfigured,
-  enableCrawlCheckpoints: process.env.SMARTCRAWL_ENABLE_CRAWL_CHECKPOINTS === 'true',
-  enableCheckpointResume: process.env.SMARTCRAWL_ENABLE_CHECKPOINT_RESUME === 'true',
+  enableCrawlCheckpoints,
+  enableCheckpointResume,
   guestDemoLimit: Math.max(0, Number(process.env.SMARTCRAWL_GUEST_DEMO_LIMIT ?? 2)),
   scrape: (request) => scrape(request, scrapeDeps),
   map: (request) => mapSite(request, scrapeDeps),
