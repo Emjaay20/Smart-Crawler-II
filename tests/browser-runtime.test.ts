@@ -94,6 +94,46 @@ describe('Playwright browser lifecycle and resource isolation', () => {
     expect(recovered.close).toHaveBeenCalledTimes(1);
   });
 
+  it('retries a failed Chromium launch instead of keeping a rejected startup promise', async () => {
+    const healthy = fakeBrowser();
+    playwrightMock.launch.mockRejectedValueOnce(new Error('Browser startup failed'))
+      .mockResolvedValueOnce(healthy);
+    const runtime = await import('../src/browser.js');
+    closeRuntime = runtime.closeBrowser;
+
+    await expect(runtime.renderWithPlaywright('https://example.com/first', request))
+      .rejects.toThrow('Browser startup failed');
+    expect((await runtime.renderWithPlaywright('https://example.com/second', request)).finalUrl)
+      .toBe('https://example.com/second');
+    expect(playwrightMock.launch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not close a retired browser while a sibling context is still working', async () => {
+    const bothStarted = deferred();
+    const finishSlowTask = deferred();
+    let started = 0;
+    const instance = fakeBrowser(async (url) => {
+      started += 1;
+      if (started === 2) bothStarted.resolve();
+      await bothStarted.promise;
+      if (url.endsWith('/fail')) throw new Error('A context failed');
+      await finishSlowTask.promise;
+    });
+    playwrightMock.launch.mockResolvedValue(instance);
+    const runtime = await import('../src/browser.js');
+    closeRuntime = runtime.closeBrowser;
+
+    const failing = runtime.renderWithPlaywright('https://example.com/fail', request);
+    const succeeding = runtime.renderWithPlaywright('https://example.com/slow', request);
+    await bothStarted.promise;
+    await expect(failing).rejects.toThrow('A context failed');
+    expect(instance.close).not.toHaveBeenCalled();
+    finishSlowTask.resolve();
+    expect((await succeeding).finalUrl).toBe('https://example.com/slow');
+    expect(instance.close).toHaveBeenCalledTimes(1);
+    expect(playwrightMock.launch).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects excess queued requests and keeps other render tasks alive', async () => {
     vi.stubEnv('SMARTCRAWL_BROWSER_CONCURRENCY', '1');
     const gate = deferred();
