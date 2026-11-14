@@ -40,6 +40,12 @@
 - Existing map/crawl tests and all other suites must pass.
 - Stage and benchmark with **owned fixture sites**, recording concurrency, number of pages, total time, peak work, CPU, memory, p50/p95 and extraction failures. Unit tests do not substitute for real network/load measurements.
 
+## Reproducible synthetic benchmark
+
+Run `npm run bench:crawl` after `npm ci`. The script runs an owned, deterministic, in-memory HTTP fixture with 16 pages and a fixed 45ms per-page delay, repeating concurrency levels 1, 2 and 4 three times each. It emits machine-readable JSON with raw durations, sample mean, p50, p95 and observed concurrent fixture requests.
+
+This benchmark is also a CI step. **These numbers are not production throughput**, not external network results, and not a measure of Firecrawl's performance. They are a controlled diagnostic for comparing this scheduler's code paths and detecting regressions. A true network benchmark still needs a separately isolated, permissioned staging environment with CPU/memory metrics and realistic HTML/JavaScript fixtures.
+
 ## Upcoming tranche — Durable restart recovery
 
 Before resuming jobs, define a trusted replay manifest with persistable options, attempt limits and an idempotent completion protocol. Ensure the scheduler can reconstruct jobs from safe metadata (never persisted proxy secrets), distinguish pending from partially completed work, handle interrupted in-flight pages without corrupting results, and provide explicit cancellation/dead-letter semantics.
