@@ -122,7 +122,7 @@ Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`,
 
 Direct HTTP scraping, robots.txt and sitemap requests now use validated, DNS-pinned egress with manually checked redirects. See [HTTP egress security](./docs/engineering/SAFE_EGRESS.md) for limitations and the remaining audit work.
 
-Browser rendering fails closed unless a deployment operator has **enforced outbound network isolation** and sets `SMARTCRAWL_BROWSER_EGRESS_ISOLATED=true`. Third-party proxy requests fail closed unless an operator controls a gateway that separately enforces destination restrictions and sets `SMARTCRAWL_TRUSTED_PROXY_EGRESS=true`. Neither flag supplies a firewall on its own; do not enable either without the corresponding external security controls. The low-memory hosted Docker image does not include Chromium.
+Browser rendering fails closed unless a deployment operator has **enforced outbound network isolation** and sets `SMARTCRAWL_BROWSER_EGRESS_ISOLATED=true`. Third-party proxy requests fail closed unless an operator configures the *exact* gateway URL with `SMARTCRAWL_PROXY_URL`, sets `SMARTCRAWL_TRUSTED_PROXY_EGRESS=true`, and ensures that gateway enforces destination restrictions. Per-request proxy substitution is not supported. Neither flag supplies a firewall on its own; do not enable either without the corresponding external security controls. The low-memory hosted Docker image does not include Chromium.
 
 ## Web-Scale Crawler & Egress Infrastructure
 
