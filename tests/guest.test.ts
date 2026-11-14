@@ -107,10 +107,8 @@ describe('guest demo identity and quotas', () => {
     const foreignExport = await fetch(base + '/v1/jobs/' + jobId + '/export.jsonl', { headers: { cookie: cookieB } });
     expect(foreignExport.status).toBe(404);
 
-    const listedA = (await (await fetch(base + '/v1/jobs', { headers: { cookie: cookieA } })).json())
-      as { jobs: Array<{ id: string }> };
-    const listedB = (await (await fetch(base + '/v1/jobs', { headers: { cookie: cookieB } })).json())
-      as { jobs: Array<{ id: string }> };
+    const listedA = (await (await fetch(base + '/v1/jobs', { headers: { cookie: cookieA } })).json()) as { jobs: Array<{ id: string }> };
+    const listedB = (await (await fetch(base + '/v1/jobs', { headers: { cookie: cookieB } })).json()) as { jobs: Array<{ id: string }> };
     expect(listedA.jobs.map((job) => job.id)).toContain(jobId);
     expect(listedB.jobs.map((job) => job.id)).not.toContain(jobId);
 
@@ -140,8 +138,7 @@ describe('guest demo identity and quotas', () => {
     // Quota exhaustion must not lock users out of their already-created results.
     expect((await fetch(base + '/v1/jobs/' + jobId, { headers: { cookie } })).status).toBe(200);
     expect((await fetch(base + '/v1/jobs/' + jobId + '/export.jsonl', { headers: { cookie } })).status).toBe(200);
-    const usage = (await (await fetch(base + '/v1/me', { headers: { cookie } })).json())
-      as { guest: { used: number; remaining: number; allowed: boolean } };
+    const usage = (await (await fetch(base + '/v1/me', { headers: { cookie } })).json()) as { guest: { used: number; remaining: number; allowed: boolean } };
     expect(usage.guest).toMatchObject({ used: 2, remaining: 0, allowed: false });
   });
 
