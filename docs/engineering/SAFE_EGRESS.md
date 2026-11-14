@@ -14,7 +14,7 @@ Require public-network destinations for HTTP-first scraping, robots.txt and site
 - src/scrape.ts sends robots.txt requests and HTTP extraction through the shared safe fetch wrapper.
 - src/crawl.ts routes sitemap discovery through the same fetch policy.
 - src/browser.ts refuses browser navigation unless the operator has enforced network-level egress isolation and explicitly sets SMARTCRAWL_BROWSER_EGRESS_ISOLATED=true.
-- Third-party proxies are denied by default. SMARTCRAWL_TRUSTED_PROXY_EGRESS=true requires a *trusted, operator-controlled* gateway that independently blocks unsafe destinations after its own DNS resolution; direct socket pinning cannot enforce destination policy through arbitrary third-party proxies.
+- Third-party proxies are denied by default. Proxy egress requires **both** SMARTCRAWL_PROXY_URL (the exact, operator-configured gateway URL) and SMARTCRAWL_TRUSTED_PROXY_EGRESS=true, and the gateway must independently block unsafe destinations after its own DNS resolution. User-supplied proxy URLs that differ from the configured gateway are rejected; generic HTTP_PROXY and HTTPS_PROXY do not implicitly enable proxy mode. Direct socket pinning cannot secure arbitrary proxy DNS resolution.
 
 ## Security expectations
 
