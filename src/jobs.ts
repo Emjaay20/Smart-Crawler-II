@@ -64,6 +64,9 @@ export class JobStore {
         updated_at INTEGER NOT NULL
       )
     `);
+    // Migrate legacy job metadata without retaining proxy URLs that may contain
+    // username/password credentials. Existing data/results remain unchanged.
+    this.db.exec("UPDATE jobs SET options_json = json_remove(options_json, '$.proxy') WHERE json_valid(options_json) = 1 AND json_type(options_json, '$.proxy') IS NOT NULL;");
   }
 
   createJob(url: string, options: Record<string, unknown> = {}): Job {
@@ -72,7 +75,7 @@ export class JobStore {
       id: randomUUID(),
       status: 'pending',
       url,
-      options,
+      options: sanitizeJobOptions(options),
       logs: [],
       createdAt: now,
       updatedAt: now,
@@ -89,7 +92,7 @@ export class JobStore {
     return row ? this.fromRow(row) : null;
   }
 
-  listJobs(opts: { keyId?: string; userId?: string; guestIp?: string; authOn?: boolean; limit?: number } = {}): Job[] {
+  listJobs(opts: { keyId?: string; userId?: string; guestSessionId?: string; authOn?: boolean; limit?: number } = {}): Job[] {
     const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 20)));
     const rows = this.db
       .prepare('SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?')
@@ -101,13 +104,13 @@ export class JobStore {
       if (opts.authOn) {
         const owner = typeof job.options.keyId === 'string' ? job.options.keyId : null;
         const ownerUser = typeof job.options.userId === 'string' ? job.options.userId : null;
-        const ownerGuestIp = typeof job.options.guestIp === 'string' ? job.options.guestIp : null;
+        const ownerGuestSession = typeof job.options.guestSessionId === 'string' ? job.options.guestSessionId : null;
         const permitted = opts.userId
           ? ownerUser === opts.userId
           : opts.keyId
           ? Boolean(owner && opts.keyId === owner)
-          : opts.guestIp
-          ? Boolean(ownerGuestIp && opts.guestIp === ownerGuestIp)
+          : opts.guestSessionId
+          ? Boolean(ownerGuestSession && opts.guestSessionId === ownerGuestSession)
           : false;
         if (!permitted) {
           continue;
@@ -178,7 +181,7 @@ export class JobStore {
       id: row.id,
       status: row.status as JobStatus,
       url: row.url,
-      options: JSON.parse(row.options_json) as Record<string, unknown>,
+      options: sanitizeJobOptions(JSON.parse(row.options_json) as Record<string, unknown>),
       data: row.data_json ? JSON.parse(row.data_json) : undefined,
       error: row.error_json ? JSON.parse(row.error_json) as JobError : undefined,
       logs: JSON.parse(row.logs_json) as JobLog[],
@@ -231,4 +234,10 @@ export function exportJobAsJsonl(job: Job): string {
     chunks: Array.isArray(payload.chunks) ? payload.chunks : [],
     exportedAt,
   }) + '\n';
+}
+
+/** Persist safe job configuration only. The live request retains its proxy value in memory. */
+function sanitizeJobOptions(options: Record<string, unknown>): Record<string, unknown> {
+  const { proxy: _proxy, ...safe } = options;
+  return safe;
 }
