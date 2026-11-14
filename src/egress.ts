@@ -137,6 +137,10 @@ export async function safeFetch(
         redirect: 'manual',
         ...(agent ? { dispatcher: agent } : {}),
       } as RequestInit);
+      if (response.url && response.url !== current) {
+        await response.body?.cancel();
+        throw new InvalidUrlError('Transport followed an unvalidated redirect');
+      }
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get('location');
         if (location) {
@@ -179,7 +183,14 @@ export async function safeFetch(
   throw new InvalidUrlError('Redirect limit exceeded');
 }
 
+const wrappers = new WeakMap<typeof fetch, typeof fetch>();
+
 export function createSafeFetch(fetchImpl: typeof fetch = fetch): typeof fetch {
-  return ((input: RequestInfo | URL, init?: RequestInit) =>
-    safeFetch(input, init, { fetchImpl })) as typeof fetch;
+  let wrapped = wrappers.get(fetchImpl);
+  if (!wrapped) {
+    wrapped = ((input: RequestInfo | URL, init?: RequestInit) =>
+      safeFetch(input, init, { fetchImpl })) as typeof fetch;
+    wrappers.set(fetchImpl, wrapped);
+  }
+  return wrapped;
 }
