@@ -8,7 +8,7 @@ import type { ScrapeResult } from '../src/types.js';
 
 const sample: ScrapeResult = {
   success: true,
-  markdown: '# Demo Page Content',
+  markdown: '# Guest Demo',
   metadata: {
     title: 'Demo',
     statusCode: 200,
@@ -23,119 +23,142 @@ const sample: ScrapeResult = {
 
 async function listen(app: ReturnType<typeof createApp>): Promise<{ server: Server; base: string }> {
   const server = app.listen(0, '127.0.0.1');
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-  const addr = server.address() as AddressInfo;
-  return { server, base: `http://127.0.0.1:${addr.port}` };
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+  return { server, base: 'http://127.0.0.1:' + address.port };
 }
 
-describe('guest demo tier rate-limiting', () => {
+function cookieFrom(res: Response): string {
+  const header = res.headers.get('set-cookie');
+  expect(header).toContain('smartcrawl_guest=');
+  expect(header).toContain('HttpOnly');
+  expect(header).toContain('SameSite=Lax');
+  return header!.split(';', 1)[0]!;
+}
+
+describe('guest demo identity and quotas', () => {
   let server: Server | undefined;
   const stores: JobStore[] = [];
-
   afterEach(async () => {
     if (server) {
-      await new Promise<void>((resolve, reject) => server!.close((err) => (err ? reject(err) : resolve())));
+      await new Promise<void>((resolve, reject) =>
+        server!.close((error) => error ? reject(error) : resolve()));
       server = undefined;
     }
     while (stores.length) stores.pop()?.close();
   });
 
-  function boot(guestDemoLimit = 2) {
+  async function boot(limit = 2) {
     const store = new JobStore(':memory:');
     stores.push(store);
     const keys = new KeyStore(store.db);
     const app = createApp({
       store,
       keys,
-      adminToken: 'admin-secret',
-      guestDemoLimit,
+      adminToken: 'admin-test-token',
+      guestDemoLimit: limit,
       scrape: async () => sample,
     });
-    return { app, keys, store };
-  }
-
-  it('exposes guest quota on /v1/me and permits 2 free demo runs before gating behind sign-in', async () => {
-    const { app } = boot(2);
     const started = await listen(app);
     server = started.server;
+    return { ...started, keys, store };
+  }
 
-    // 1. Initial state: /v1/me reports 2 remaining demo runs
-    const me1 = await (await fetch(`${started.base}/v1/me`, {
-      headers: { 'x-forwarded-for': '203.0.113.195' },
-    })).json() as any;
-    expect(me1.authenticated).toBe(false);
-    expect(me1.authRequired).toBe(true);
-    expect(me1.guest).toEqual({
-      limit: 2,
-      used: 0,
-      remaining: 2,
-      allowed: true,
-    });
-
-    // 2. First demo scrape from IP 203.0.113.195 -> SUCCESS
-    const run1 = await fetch(`${started.base}/v1/scrape`, {
+  async function submit(base: string, cookie?: string, forwardedIp?: string) {
+    return fetch(base + '/v1/scrape', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-forwarded-for': '203.0.113.195',
+        ...(cookie ? { cookie } : {}),
+        ...(forwardedIp ? { 'x-forwarded-for': forwardedIp } : {}),
       },
-      body: JSON.stringify({ url: 'https://example.com/demo1' }),
+      body: JSON.stringify({ url: 'https://example.com/demo' }),
     });
-    expect(run1.status).toBe(200);
-    expect(run1.headers.get('x-demo-limit')).toBe('2');
-    expect(run1.headers.get('x-demo-remaining')).toBe('1');
-    const { jobId: job1Id } = await run1.json() as { jobId: string };
+  }
 
-    // Guest can poll their own job status without an API key
-    const poll1 = await fetch(`${started.base}/v1/jobs/${job1Id}`, {
-      headers: { 'x-forwarded-for': '203.0.113.195' },
+  it('uses a private cookie to identify the guest and protect job access', async () => {
+    const { base, store } = await boot();
+    const meA = await fetch(base + '/v1/me');
+    const cookieA = cookieFrom(meA);
+    const meB = await fetch(base + '/v1/me');
+    const cookieB = cookieFrom(meB);
+    expect(cookieA).not.toEqual(cookieB);
+
+    const created = await submit(base, cookieA, '203.0.113.10');
+    expect(created.status).toBe(200);
+    const { jobId } = await created.json() as { jobId: string };
+    const stored = store.getJob(jobId)!;
+    expect(stored.options.isGuest).toBe(true);
+    expect(stored.options.guestSessionId).toMatch(/^[a-f0-9]{64}$/);
+    expect(stored.options.guestIp).toBeUndefined();
+    expect(JSON.stringify(stored)).not.toContain(cookieA.split('=')[1]);
+
+    const owned = await fetch(base + '/v1/jobs/' + jobId, { headers: { cookie: cookieA } });
+    expect(owned.status).toBe(200);
+    const ownedBody = await owned.json() as { options: Record<string, unknown> };
+    expect(ownedBody.options).not.toHaveProperty('guestSessionId');
+    expect(ownedBody.options).not.toHaveProperty('isGuest');
+
+    const foreign = await fetch(base + '/v1/jobs/' + jobId, {
+      headers: { cookie: cookieB, 'x-forwarded-for': '203.0.113.10' },
     });
-    expect(poll1.status).toBe(200);
+    expect(foreign.status).toBe(404);
 
-    // 3. Second demo scrape from same IP -> SUCCESS
-    const run2 = await fetch(`${started.base}/v1/scrape`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-forwarded-for': '203.0.113.195',
-      },
-      body: JSON.stringify({ url: 'https://example.com/demo2' }),
+    const foreignExport = await fetch(base + '/v1/jobs/' + jobId + '/export.jsonl', { headers: { cookie: cookieB } });
+    expect(foreignExport.status).toBe(404);
+
+    const listedA = (await (await fetch(base + '/v1/jobs', { headers: { cookie: cookieA } })).json()) as { jobs: Array<{ id: string }> };
+    const listedB = (await (await fetch(base + '/v1/jobs', { headers: { cookie: cookieB } })).json()) as { jobs: Array<{ id: string }> };
+    expect(listedA.jobs.map((job) => job.id)).toContain(jobId);
+    expect(listedB.jobs.map((job) => job.id)).not.toContain(jobId);
+
+    const noCookie = await fetch(base + '/v1/jobs/' + jobId, {
+      headers: { 'x-forwarded-for': '203.0.113.10' },
     });
-    expect(run2.status).toBe(200);
-    expect(run2.headers.get('x-demo-remaining')).toBe('0');
+    expect(noCookie.status).toBe(404);
+  });
 
-    // /v1/me now reports 0 remaining and allowed: false
-    const me2 = await (await fetch(`${started.base}/v1/me`, {
-      headers: { 'x-forwarded-for': '203.0.113.195' },
-    })).json() as any;
-    expect(me2.guest.used).toBe(2);
-    expect(me2.guest.remaining).toBe(0);
-    expect(me2.guest.allowed).toBe(false);
+  it('does not trust arbitrary forwarded-IP headers for guest quotas', async () => {
+    const { base } = await boot(2);
+    const me = await fetch(base + '/v1/me', { headers: { 'x-forwarded-for': '203.0.113.1' } });
+    const cookie = cookieFrom(me);
+    const first = await submit(base, cookie, '203.0.113.1');
+    expect(first.status).toBe(200);
+    expect(first.headers.get('x-demo-remaining')).toBe('1');
+    const { jobId } = await first.json() as { jobId: string };
 
-    // 4. Third demo scrape from same IP -> REJECTED with 401 and demo_quota_exceeded
-    const run3 = await fetch(`${started.base}/v1/scrape`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-forwarded-for': '203.0.113.195',
-      },
-      body: JSON.stringify({ url: 'https://example.com/demo3' }),
+    const second = await submit(base, cookie, '198.51.100.2');
+    expect(second.status).toBe(200);
+    expect(second.headers.get('x-demo-remaining')).toBe('0');
+
+    const third = await submit(base, undefined, '192.0.2.3');
+    expect(third.status).toBe(401);
+    expect((await third.json() as { code: string }).code).toBe('demo_quota_exceeded');
+
+    // Quota exhaustion must not lock users out of their already-created results.
+    expect((await fetch(base + '/v1/jobs/' + jobId, { headers: { cookie } })).status).toBe(200);
+    expect((await fetch(base + '/v1/jobs/' + jobId + '/export.jsonl', { headers: { cookie } })).status).toBe(200);
+    const usage = (await (await fetch(base + '/v1/me', { headers: { cookie } })).json()) as { guest: { used: number; remaining: number; allowed: boolean } };
+    expect(usage.guest).toMatchObject({ used: 2, remaining: 0, allowed: false });
+  });
+
+  it('does not grant legacy IP-owned guest jobs to a different session', async () => {
+    const { base, store } = await boot();
+    const legacy = store.createJob('https://example.com/old', {
+      kind: 'scrape', isGuest: true, guestIp: '203.0.113.70',
     });
-    expect(run3.status).toBe(401);
-    const body3 = await run3.json() as any;
-    expect(body3.code).toBe('demo_quota_exceeded');
-    expect(body3.error).toContain('Free demo limit reached');
-
-    // 5. A different IP is isolated and still has its full 2 demo scrapes
-    const otherIpRun = await fetch(`${started.base}/v1/scrape`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-forwarded-for': '198.51.100.42',
-      },
-      body: JSON.stringify({ url: 'https://example.com/other-user' }),
+    const response = await fetch(base + '/v1/jobs/' + legacy.id, {
+      headers: { 'x-forwarded-for': '203.0.113.70' },
     });
-    expect(otherIpRun.status).toBe(200);
-    expect(otherIpRun.headers.get('x-demo-remaining')).toBe('1');
+    expect(response.status).toBe(404);
+  });
+
+  it('ignores malformed guest cookies and issues a new valid session', async () => {
+    const { base } = await boot();
+    const res = await fetch(base + '/v1/me', {
+      headers: { cookie: 'smartcrawl_guest=%E0%A4%A' },
+    });
+    expect(res.status).toBe(200);
+    expect(cookieFrom(res)).toMatch(/smartcrawl_guest=sc_guest_/);
   });
 });
