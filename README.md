@@ -118,6 +118,21 @@ Successful `data`:
 
 Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
 
+## Bounded concurrent crawling (Phase 3 draft)
+
+`/v1/crawl` supports an optional `concurrency` setting (integer 1–4, default 1) and a per-origin start-spacing `crawlDelayMs` (0–60,000ms, default 250ms). The crawler uses deterministic breadth-first batches with a maximum of 20 successful pages. It rejects cross-origin links, including alternate ports on the same hostname.
+
+```json
+{
+  "url": "https://example.com/docs",
+  "limit": 10,
+  "concurrency": 2,
+  "crawlDelayMs": 250
+}
+```
+
+For offline, reproducible performance experiments run `npm run bench:crawl`, which compares concurrency levels 1, 2 and 4 against synthetic fixture responses. **Synthetic latency does not represent real website performance.** The scheduler is in-process and cannot yet resume incomplete crawls after a restart. See [Phase 3 scheduler design](./docs/engineering/PHASE3_CRAWL_SCHEDULER.md) for the tests and remaining durability work.
+
 ## Outbound request security
 
 Direct HTTP scraping, robots.txt and sitemap requests now use validated, DNS-pinned egress with manually checked redirects. See [HTTP egress security](./docs/engineering/SAFE_EGRESS.md) for limitations and the remaining audit work.
