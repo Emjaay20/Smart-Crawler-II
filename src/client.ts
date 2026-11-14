@@ -7,6 +7,10 @@ export interface SmartCrawlOptions {
   baseUrl: string;
   apiKey?: string;
   fetch?: typeof fetch;
+  /** Per-request network deadline, default 15 seconds (50–120000 ms). */
+  requestTimeoutMs?: number;
+  /** Job polling interval, default 250 milliseconds (50–5000 ms). */
+  pollIntervalMs?: number;
 }
 
 export interface JobView {
@@ -56,11 +60,15 @@ export class SmartCrawl {
   private readonly fetchImpl: typeof fetch;
   private guestCookie?: string;
   private guestSessionInit?: Promise<void>;
+  private readonly requestTimeoutMs: number;
+  private readonly pollIntervalMs: number;
 
   constructor(options: SmartCrawlOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.apiKey = options.apiKey;
     this.fetchImpl = options.fetch ?? fetch;
+    this.requestTimeoutMs = positiveMs(options.requestTimeoutMs, 15_000, 50, 120_000);
+    this.pollIntervalMs = positiveMs(options.pollIntervalMs, 250, 50, 5_000);
   }
 
   async health(): Promise<{ status: string }> {
@@ -103,7 +111,7 @@ export class SmartCrawl {
     const headers: Record<string, string> = {};
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     if (!this.apiKey && this.guestCookie && isNodeRuntime()) headers.Cookie = this.guestCookie;
-    const res = await this.fetchImpl(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/export.jsonl`, {
+    const res = await this.fetchWithDeadline(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/export.jsonl`, {
       method: 'GET',
       headers,
     });
@@ -120,11 +128,15 @@ export class SmartCrawl {
   }
 
   async waitForJob(jobId: string, timeoutMs = 60_000): Promise<JobView> {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      const current = await this.job(jobId);
+    const deadline = Date.now() + positiveMs(timeoutMs, 60_000, 1, 24 * 60 * 60 * 1000);
+    while (true) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const current = await this.request<JobView>(
+        'GET', `/v1/jobs/${encodeURIComponent(jobId)}`, undefined, remaining,
+      );
       if (current.status === 'completed' || current.status === 'failed') return current;
-      await sleep(50);
+      await sleep(Math.min(this.pollIntervalMs, Math.max(0, deadline - Date.now())));
     }
     throw new SmartCrawlError(408, `Timed out waiting for job ${jobId}`, 'timeout');
   }
@@ -151,7 +163,7 @@ export class SmartCrawl {
     if (this.apiKey || !isNodeRuntime() || this.guestCookie) return;
     if (!this.guestSessionInit) {
       this.guestSessionInit = (async () => {
-        const res = await this.fetchImpl(`${this.baseUrl}/v1/me`, {
+        const res = await this.fetchWithDeadline(`${this.baseUrl}/v1/me`, {
           method: 'GET',
         });
         this.captureGuestCookie(res);
@@ -173,16 +185,32 @@ export class SmartCrawl {
     if (match) this.guestCookie = 'smartcrawl_guest=' + match[1];
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async fetchWithDeadline(url: string, init: RequestInit, deadlineMs = this.requestTimeoutMs): Promise<Response> {
+    try {
+      return await this.fetchImpl(url, {
+        ...init,
+        redirect: 'error',
+        signal: AbortSignal.timeout(Math.min(this.requestTimeoutMs, Math.max(1, deadlineMs))),
+      });
+    } catch (err) {
+      if (err instanceof Error &&
+          (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new SmartCrawlError(408, 'SmartCrawl request timed out', 'timeout');
+      }
+      throw err;
+    }
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown, deadlineMs?: number): Promise<T> {
     const headers: Record<string, string> = {};
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
     if (!this.apiKey && this.guestCookie && isNodeRuntime()) headers.Cookie = this.guestCookie;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+    const res = await this.fetchWithDeadline(`${this.baseUrl}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    }, deadlineMs);
     this.captureGuestCookie(res);
     const text = await res.text();
     const parsed = text ? jsonParse(text) : {};
@@ -208,4 +236,13 @@ function jsonParse(text: string): unknown {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Require valid, bounded time budgets instead of silently accepting NaN or infinity. */
+function positiveMs(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new RangeError(`Timeout/interval must be between ${min} and ${max} milliseconds`);
+  }
+  return Math.floor(value);
 }
