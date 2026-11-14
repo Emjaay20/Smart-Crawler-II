@@ -30,12 +30,24 @@ export class ScrapeError extends Error {
   }
 }
 
+/**
+ * Redact credentials before an exception is persisted in job logs, exposed via
+ * status endpoints, or delivered to an operational alert.
+ * This is defense in depth; do not put secrets into error strings intentionally.
+ */
+export function redactErrorSecrets(message: string): string {
+  return message
+    .replace(/\b(https?:\/\/)[^\s/?#@]*@/gi, '$1[redacted]@')
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/-]+/gi, '$1[redacted]')
+    .replace(/\b(sc_(?:live|guest)_)[A-Za-z0-9_-]+/g, '$1[redacted]');
+}
+
 export function classifyError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof ScrapeError) {
-    return { code: err.code, message: err.message };
+    return { code: err.code, message: redactErrorSecrets(err.message) };
   }
   if (err instanceof InvalidUrlError) {
-    return { code: 'invalid_url', message: err.message };
+    return { code: 'invalid_url', message: redactErrorSecrets(err.message) };
   }
 
   const name = errorName(err);
@@ -43,13 +55,13 @@ export function classifyError(err: unknown): { code: ErrorCode; message: string 
   const message = err instanceof Error ? err.message : String(err);
 
   if (name === 'AbortError' || name === 'TimeoutError' || /timed? ?out/i.test(message)) {
-    return { code: 'timeout', message };
+    return { code: 'timeout', message: redactErrorSecrets(message) };
   }
   if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
-    return { code: 'dns', message };
+    return { code: 'dns', message: redactErrorSecrets(message) };
   }
 
-  return { code: 'unknown', message };
+  return { code: 'unknown', message: redactErrorSecrets(message) };
 }
 
 function errorName(err: unknown): string {
