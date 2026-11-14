@@ -18,7 +18,7 @@ export function browserSchedulerLimits(env: NodeJS.ProcessEnv = process.env): {
   maxPending: number;
 } {
   return {
-    concurrency: boundedInteger(env.SMARTCRAWL_BROWSER_CONCURRENCY, 2, 1, 4),
+    concurrency: boundedInteger(env.SMARTCRAWL_BROWSER_CONCURRENCY, 1, 1, 4),
     maxPending: boundedInteger(env.SMARTCRAWL_BROWSER_MAX_PENDING, 24, 1, 128),
   };
 }
