@@ -118,6 +118,12 @@ Successful `data`:
 
 Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
 
+## SDK request deadlines (Phase 4 draft)
+
+The TypeScript SDK now supports `requestTimeoutMs` (default 15 seconds) and `pollIntervalMs` (default 250ms). `waitForJob(jobId, timeoutMs)` enforces an overall time budget, and HTTP errors preserve structured status and code. SDK requests reject redirects by default.
+
+**Important:** a client-side timeout does not cancel the server's job. Retry POST requests only with appropriate idempotency safeguards. See [Phase 4 SDK engineering notes](./docs/engineering/PHASE4_SDK_DEADLINES.md).
+
 ## Durable crawl checkpoints (Phase 3C draft)
 
 Optional `SMARTCRAWL_ENABLE_CRAWL_CHECKPOINTS=true` commits completed breadth-first crawl batches to SQLite. A separate `SMARTCRAWL_ENABLE_CHECKPOINT_RESUME=true` flag allows an administrator with the configured admin token to explicitly resume an interrupted crawl as a **new** job from the last committed checkpoint by calling `POST /v1/admin/jobs/:id/resume` with `{"acknowledgePossibleRefetch":true}`.
