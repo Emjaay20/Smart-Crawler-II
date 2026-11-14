@@ -58,6 +58,44 @@ describe('SmartCrawl client', () => {
     expect(listed.jobs[0]?.url).toBe('https://example.com');
   });
 
+  it('preserves a guest session during concurrent Node SDK scrapes and exports', async () => {
+    const store = new JobStore(':memory:');
+    stores.push(store);
+    const keys = new KeyStore(store.db);
+    const app = createApp({
+      store,
+      keys,
+      adminToken: 'admin-secret',
+      guestDemoLimit: 2,
+      scrape: async () => sample,
+    });
+    const started = await listen(app);
+    server = started.server;
+
+    let guestBootstrapRequests = 0;
+    const monitoredFetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/v1/me')) guestBootstrapRequests += 1;
+      return fetch(input, init);
+    }) as typeof fetch;
+    const sc = new SmartCrawl({ baseUrl: started.base, fetch: monitoredFetch });
+    const results = await Promise.all([
+      sc.scrape('https://example.com/article/one'),
+      sc.scrape('https://example.com/article/two'),
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((result) => result.success)).toBe(true);
+    expect(guestBootstrapRequests).toBe(1);
+
+    const list = await sc.listJobs(10);
+    expect(list.jobs).toHaveLength(2);
+    const exported = await sc.exportJsonl(list.jobs[0]!.id);
+    expect(exported).toContain('# Hello');
+
+    const outsider = new SmartCrawl({ baseUrl: started.base });
+    await expect(outsider.job(list.jobs[0]!.id))
+      .rejects.toMatchObject({ status: 404 } satisfies Partial<SmartCrawlError>);
+  });
+
   it('throws SmartCrawlError on 401', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
