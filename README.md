@@ -118,6 +118,14 @@ Successful `data`:
 
 Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
 
+## Engineering evidence and release review
+
+- [Phase-by-phase CI results and outstanding release gates](./docs/engineering/CI_PHASE_RESULTS.md)
+- [Performance methodology and verification](./docs/engineering/PHASE6_PERFORMANCE_REVIEW.md)
+- [Source-backed Firecrawl engineering case study](./docs/portfolio/SMARTCRAWL_FIRECRAWL_CASE_STUDY.md)
+
+**Review state:** security, crawler, recovery, SDK and audit improvements are stacked draft changes. They require independent code/security review and staging validation before a production release.
+
 ## Administrative audit and key authentication (Phase 5 draft)
 
 When API keys are configured, SmartCrawl now requires an authorized key or configured guest-demo allowance even if the administrator token is absent. Selected key operations and administrator-approved crawl resumption write credential-free audit records to SQLite. Administrators can query the bounded `GET /v1/admin/audit` endpoint with their bearer token.
