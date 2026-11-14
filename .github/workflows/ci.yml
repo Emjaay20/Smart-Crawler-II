@@ -30,6 +30,9 @@ jobs:
       - name: Run Vitest suite
         run: npm test
 
+      - name: Run synthetic crawl concurrency benchmark
+        run: npm run bench:crawl
+
       - name: Build backend & UI
         run: npm run build
 
