@@ -733,7 +733,15 @@ function parseAndValidateDiscoverBody(body: unknown): ParseResult<DiscoverReques
   const request: DiscoverRequest = { ...base.value };
   if (typeof record.limit === 'number' && Number.isFinite(record.limit)) request.limit = record.limit;
   if (typeof record.crawlDelayMs === 'number' && Number.isFinite(record.crawlDelayMs)) {
-    request.crawlDelayMs = Math.max(0, record.crawlDelayMs);
+    request.crawlDelayMs = Math.min(60_000, Math.max(0, record.crawlDelayMs));
+  }
+  if (record.concurrency !== undefined) {
+    if (typeof record.concurrency !== 'number' ||
+        !Number.isInteger(record.concurrency) ||
+        record.concurrency < 1 || record.concurrency > 4) {
+      return { ok: false, error: 'Crawl concurrency must be an integer from 1 to 4' };
+    }
+    request.concurrency = record.concurrency;
   }
   if (Array.isArray(record.includePaths)) {
     request.includePaths = record.includePaths.filter((value): value is string => typeof value === 'string');
