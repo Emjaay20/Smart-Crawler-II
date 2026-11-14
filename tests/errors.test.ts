@@ -25,6 +25,24 @@ describe('classifyError', () => {
     expect(classifyError(new ScrapeError('http_4xx', '404')).code).toBe('http_4xx');
   });
 
+  it('redacts proxy basic-auth URLs and bearer tokens in all error classes', () => {
+    const proxyUrl = 'http://crawler-user:example-secret@proxy.example:8080';
+    const message = 'fetch failed through ' + proxyUrl +
+      ' Authorization: Bearer sc_live_ExampleToken123';
+    for (const error of [
+      new Error(message),
+      new ScrapeError('provider_unavailable', message),
+      new InvalidUrlError(message),
+      Object.assign(new Error(message), { code: 'ENOTFOUND' }),
+    ]) {
+      const classified = classifyError(error);
+      expect(classified.message).toContain('http://[redacted]@proxy.example:8080');
+      expect(classified.message).toContain('Bearer [redacted]');
+      expect(classified.message).not.toContain('example-secret');
+      expect(classified.message).not.toContain('sc_live_ExampleToken123');
+    }
+  });
+
   it('falls back to unknown', () => {
     expect(classifyError(new Error('boom')).code).toBe('unknown');
     expect(classifyError('string').code).toBe('unknown');
