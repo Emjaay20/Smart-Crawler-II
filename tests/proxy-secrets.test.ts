@@ -69,6 +69,40 @@ describe('job configuration confidentiality', () => {
     expect(store.getJob(jobId)?.options).not.toHaveProperty('proxy');
   });
 
+  it('redacts proxy credentials from failed-job status and stored logs', async () => {
+    const store = new JobStore(':memory:');
+    stores.push(store);
+    const proxy = 'http://worker:another-secret@proxy.example:8080';
+    const app = createApp({
+      store,
+      scrape: async () => {
+        throw new Error('Upstream connection failed through ' + proxy);
+      },
+    });
+    server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server!.once('listening', resolve));
+    const { port } = server.address() as AddressInfo;
+    const base = 'http://127.0.0.1:' + port;
+
+    const created = await fetch(base + '/v1/scrape', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com', proxy }),
+    });
+    expect(created.status).toBe(200);
+    const { jobId } = await created.json() as { jobId: string };
+    let status: { status: string; error?: string; logs?: Array<{ msg: string }> } | undefined;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      status = await (await fetch(base + '/v1/jobs/' + jobId)).json() as typeof status;
+      if (status?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(status?.status).toBe('failed');
+    expect(status?.error).toContain('http://[redacted]@proxy.example:8080');
+    expect(JSON.stringify(status)).not.toContain('another-secret');
+    expect(JSON.stringify(store.getJob(jobId))).not.toContain('another-secret');
+  });
+
   it('rejects destination URLs with embedded credentials before creating a job', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
