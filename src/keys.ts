@@ -33,6 +33,16 @@ export interface KeyUsage extends AuthKey {
   remaining: number;
 }
 
+export interface GuestSession {
+  /** SHA-256 identifier stored with jobs; never the bearer secret. */
+  id: string;
+  expiresAt: number;
+}
+
+export interface IssuedGuestSession extends GuestSession {
+  token: string;
+}
+
 export interface GuestUsage {
   used: number;
   remaining: number;
@@ -40,6 +50,8 @@ export interface GuestUsage {
 }
 
 const DEFAULT_DAILY_LIMIT = 50;
+const GUEST_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GUEST_TOKEN_RE = /^sc_guest_[A-Za-z0-9_-]{43}$/;
 
 export class KeyStore {
   constructor(private readonly db: DatabaseSync) {
@@ -56,6 +68,12 @@ export class KeyStore {
         revoked INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS guest_sessions (
+        id TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS guest_sessions_expires_idx ON guest_sessions(expires_at);
       CREATE TABLE IF NOT EXISTS guest_ip_limits (
         ip TEXT NOT NULL,
         used_on TEXT NOT NULL,
@@ -136,6 +154,25 @@ export class KeyStore {
     return { ok: true, remaining: row.dailyLimit - next };
   }
 
+  createGuestSession(now = Date.now()): IssuedGuestSession {
+    this.db.prepare('DELETE FROM guest_sessions WHERE expires_at <= ?').run(now);
+    const token = 'sc_guest_' + randomBytes(32).toString('base64url');
+    const id = hashKey(token);
+    const expiresAt = now + GUEST_SESSION_TTL_MS;
+    this.db.prepare('INSERT INTO guest_sessions (id, expires_at, created_at) VALUES (?, ?, ?)')
+      .run(id, expiresAt, now);
+    return { id, token, expiresAt };
+  }
+
+  authenticateGuestSession(rawToken: string | undefined, now = Date.now()): GuestSession | null {
+    if (!rawToken || !GUEST_TOKEN_RE.test(rawToken)) return null;
+    const id = hashKey(rawToken);
+    const row = this.db.prepare('SELECT expires_at AS expiresAt FROM guest_sessions WHERE id = ?')
+      .get(id) as { expiresAt: number } | undefined;
+    if (!row || row.expiresAt <= now) return null;
+    return { id, expiresAt: row.expiresAt };
+  }
+
   getGuestUsage(ip: string, day = utcDay(new Date()), limit = 2): GuestUsage {
     const normalizedIp = ip.trim().toLowerCase();
     const row = this.db.prepare(`
@@ -151,19 +188,19 @@ export class KeyStore {
   }
 
   consumeGuest(ip: string, day = utcDay(new Date()), limit = 2): { ok: boolean; used: number; remaining: number } {
+    if (limit <= 0) return { ok: false, used: 0, remaining: 0 };
     const normalizedIp = ip.trim().toLowerCase();
-    const current = this.getGuestUsage(normalizedIp, day, limit);
-    if (!current.allowed) {
-      return { ok: false, used: current.used, remaining: 0 };
-    }
-    const next = current.used + 1;
-    this.db.prepare(`
+    // One atomic statement, so concurrent requests and multiple Node processes
+    // cannot both consume the final available slot.
+    const result = this.db.prepare(`
       INSERT INTO guest_ip_limits (ip, used_on, used_count)
-      VALUES (?, ?, ?)
-      ON CONFLICT(ip, used_on) DO UPDATE SET used_count = excluded.used_count
-    `).run(normalizedIp, day, next);
-
-    return { ok: true, used: next, remaining: Math.max(0, limit - next) };
+      VALUES (?, ?, 1)
+      ON CONFLICT(ip, used_on) DO UPDATE SET
+        used_count = guest_ip_limits.used_count + 1
+      WHERE guest_ip_limits.used_count < ?
+    `).run(normalizedIp, day, limit);
+    const usage = this.getGuestUsage(normalizedIp, day, limit);
+    return { ok: Number(result.changes) > 0, used: usage.used, remaining: usage.remaining };
   }
 
   resetGuest(ip?: string, day?: string): void {
