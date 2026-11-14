@@ -21,6 +21,10 @@
 | Self-hosted search diagnostics | [#5472](https://github.com/firecrawl/firecrawl/issues/5472) | Improve understanding of 429/upstream failure vs empty results. **Open at baseline.** Establish a controllable repro before proposing a fix. |
 | Manual terminal webhook redelivery | [#4774](https://github.com/firecrawl/firecrawl/issues/4774) | Relevant to event delivery/idempotency work, but a larger feature. **Open at baseline.** Seek maintainer guidance on a small first scope. |
 
+## Investigation in progress
+
+- [Issue #5717 source inspection and controlled reproduction plan](./FIRECRAWL_5717_INVESTIGATION.md): inspected the JSON extraction transformer and identified a candidate missing source-status guard. **No local reproduction or confirmed root cause yet. No upstream PR has been submitted.**
+
 ## Existing pull requests to study, test or review
 
 - [#5167 — Playwright browser recovery](https://github.com/firecrawl/firecrawl/pull/5167): open at baseline; do not submit a duplicate fix.
