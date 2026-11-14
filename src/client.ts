@@ -54,6 +54,8 @@ export class SmartCrawl {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly fetchImpl: typeof fetch;
+  private guestCookie?: string;
+  private guestSessionInit?: Promise<void>;
 
   constructor(options: SmartCrawlOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
@@ -97,8 +99,10 @@ export class SmartCrawl {
   }
 
   async exportJsonl(jobId: string): Promise<string> {
+    await this.ensureNodeGuestSession();
     const headers: Record<string, string> = {};
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    if (!this.apiKey && this.guestCookie && isNodeRuntime()) headers.Cookie = this.guestCookie;
     const res = await this.fetchImpl(`${this.baseUrl}/v1/jobs/${encodeURIComponent(jobId)}/export.jsonl`, {
       method: 'GET',
       headers,
@@ -134,18 +138,52 @@ export class SmartCrawl {
   }
 
   private async start(path: string, body: unknown): Promise<{ jobId: string }> {
+    await this.ensureNodeGuestSession();
     return this.request('POST', path, body);
+  }
+
+  /**
+   * Browsers preserve same-origin cookies automatically. Node fetch has no
+   * cookie jar, so bootstrap exactly one guest session before the first
+   * concurrent job submission and retain its cookie on this client instance.
+   */
+  private async ensureNodeGuestSession(): Promise<void> {
+    if (this.apiKey || !isNodeRuntime() || this.guestCookie) return;
+    if (!this.guestSessionInit) {
+      this.guestSessionInit = (async () => {
+        const res = await this.fetchImpl(`${this.baseUrl}/v1/me`, {
+          method: 'GET',
+        });
+        this.captureGuestCookie(res);
+        await res.body?.cancel();
+      })().finally(() => {
+        this.guestSessionInit = undefined;
+      });
+    }
+    await this.guestSessionInit;
+  }
+
+  private captureGuestCookie(res: Response): void {
+    if (this.apiKey || !isNodeRuntime()) return;
+    // A final redirect must never make us accept a cookie from another origin.
+    if (res.url && new URL(res.url).origin !== new URL(this.baseUrl).origin) return;
+    const raw = res.headers.get('set-cookie');
+    if (!raw) return;
+    const match = /(?:^|[;,]\s*)smartcrawl_guest=(sc_guest_[A-Za-z0-9_-]{43})(?=;|,|$)/.exec(raw);
+    if (match) this.guestCookie = 'smartcrawl_guest=' + match[1];
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {};
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    if (!this.apiKey && this.guestCookie && isNodeRuntime()) headers.Cookie = this.guestCookie;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    this.captureGuestCookie(res);
     const text = await res.text();
     const parsed = text ? jsonParse(text) : {};
     if (!res.ok) {
@@ -154,6 +192,10 @@ export class SmartCrawl {
     }
     return parsed as T;
   }
+}
+
+function isNodeRuntime(): boolean {
+  return typeof process !== 'undefined' && Boolean(process.versions?.node);
 }
 
 function jsonParse(text: string): unknown {
