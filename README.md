@@ -118,6 +118,12 @@ Successful `data`:
 
 Errors are typed: `invalid_url`, `robots_blocked`, `timeout`, `dns`, `http_4xx`, `http_5xx`, `js_required`, `anti_bot_detected`, `circuit_broken`, `provider_unavailable`, `extract_empty`, `unknown`.
 
+## Durable crawl checkpoints (Phase 3C draft)
+
+Optional `SMARTCRAWL_ENABLE_CRAWL_CHECKPOINTS=true` commits completed breadth-first crawl batches to SQLite. A separate `SMARTCRAWL_ENABLE_CHECKPOINT_RESUME=true` flag allows an administrator with the configured admin token to explicitly resume an interrupted crawl as a **new** job from the last committed checkpoint by calling `POST /v1/admin/jobs/:id/resume` with `{"acknowledgePossibleRefetch":true}`.
+
+This is an **at-least-once** operation: requests in an incomplete batch may be repeated. Checkpoint capture and resume are both off by default. Never enable automatic replay of already running jobs. See [Phase 3C checkpoint/replay design](./docs/engineering/PHASE3_CRAWL_CHECKPOINTS.md) for guarantees, tests and safe rollout requirements.
+
 ## Safe pending-crawl recovery (Phase 3 draft)
 
 The optional `SMARTCRAWL_ENABLE_PENDING_RECOVERY=true` setting resumes **explicitly eligible, never-started local crawl jobs** from the SQLite database after restart. A pending job is atomically claimed once and retains its original job ID. Interrupted running crawls are **not** automatically replayed because their requests may already have reached the target website. Replay attempts are limited to three startup opportunities.
