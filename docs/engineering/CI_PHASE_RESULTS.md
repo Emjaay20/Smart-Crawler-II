@@ -52,3 +52,19 @@ See [release-candidate draft PR](https://github.com/Emjaay20/Smart-Crawler-II/pu
 8. A reproducible Firecrawl upstream failing test, maintainer discussion and accepted upstream PR if this is part of the hiring evidence goal.
 
 **Status:** CI-verified review candidate; **not** a verified production release, fully audited enterprise platform or completed upstream Firecrawl contribution. Keep changes on review branches until these gates are cleared.
+
+## Reproduce the combined automated test suite
+
+From the exact release-candidate commit on a Node.js 22 environment:
+
+```bash
+npm ci
+npm --prefix ui ci
+npm test
+npm run bench:crawl
+npm run build
+docker build -t smart-crawler:review .
+```
+
+The repository's existing GitHub Actions workflow runs these steps and starts an isolated Docker container to check `/health`, `/ready` and the authenticated operations report. The workflow does **not** prove real external scraping or safe deployment networking.
+
