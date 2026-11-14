@@ -140,7 +140,7 @@ export class JobStore {
     return jobs;
   }
 
-  recoverStaleJobs(reason = 'Server restarted before job completed'): number {
+  recoverStaleJobs(reason = 'Server restarted before job completed', code = 'unknown'): number {
     const stale = this.db
       .prepare("SELECT * FROM jobs WHERE status IN ('pending', 'crawling')")
       .all() as unknown as JobRow[];
@@ -148,7 +148,7 @@ export class JobStore {
 
     const now = Date.now();
     const iso = new Date(now).toISOString();
-    const errorJson = JSON.stringify({ code: 'unknown', message: reason } satisfies JobError);
+    const errorJson = JSON.stringify({ code, message: reason } satisfies JobError);
     const update = this.db.prepare(`
       UPDATE jobs SET status = 'failed', error_json = ?, logs_json = ?, updated_at = ? WHERE id = ?
     `);
