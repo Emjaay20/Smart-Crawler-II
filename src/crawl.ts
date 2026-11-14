@@ -1,4 +1,5 @@
 import { scrape, type ScrapeDeps } from './scrape.js';
+import { createSafeFetch } from './egress.js';
 import { DomainPolitenessLimiter } from './circuit.js';
 import { isAllowedPath } from './paths.js';
 import type { ContentChunk } from './types.js';
@@ -51,7 +52,7 @@ export interface CrawlDeps extends ScrapeDeps {
 
 export async function mapSite(request: DiscoverRequest, deps: ScrapeDeps = {}): Promise<MapResult> {
   const sourceUrl = canonicalizeUrl(request.url);
-  const fetchImpl = deps.fetch ?? fetch;
+  const fetchImpl = createSafeFetch(deps.fetch ?? fetch);
   const [scraped, sitemapLinks] = await Promise.all([
     scrape({
       url: sourceUrl,
