@@ -137,7 +137,7 @@ describe('durable, explicit crawl checkpoint replay', () => {
       expect(committed.pages).toHaveLength(1);
       expect(committed.queue).toEqual([ROOT + 'child-one', ROOT + 'child-two']);
       expect(recovered.getJob(parent.id)?.status).toBe('crawling');
-      expect(recovered.prepareRestartRecovery().markedFailed).toBe(1);
+      expect(recovered.recoverStaleJobs(undefined, 'restart_interrupted')).toBe(1);
       expect(recovered.getJob(parent.id)?.error?.code).toBe('restart_interrupted');
 
       const retry = recovered.createManualCrawlResume(parent.id)!;
