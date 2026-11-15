@@ -1,0 +1,91 @@
+diff --git a/apps/agent-go/provisioner.go b/apps/agent-go/provisioner.go
+index 0cf53da..348ca11 100644
+--- a/apps/agent-go/provisioner.go
++++ b/apps/agent-go/provisioner.go
+@@ -384,12 +384,13 @@ func renderRuntimeCompose(app Application, safeName, controlPlaneRoot, projectsR
+ 	}
+ 
+ 	if app.Runtime == "github" && app.GithubRepo != "" {
++		dataMount, dataVolume := persistentAppDataCompose(app)
+ 		return fmt.Sprintf(`
+ services:
+   app:
+     build: .
+     env_file: .env
+-    labels:
++%s    labels:
+       - "traefik.enable=true"
+       - "traefik.docker.network=aetherhost-net"
+       - "traefik.http.routers.%s-app.rule=Host(%s)"%s
+@@ -399,7 +400,7 @@ services:
+ networks:
+   aetherhost-net:
+     external: true
+-`, safeName, hostRule, tlsLabels, safeName)
++%s`, dataMount, safeName, hostRule, tlsLabels, safeName, dataVolume)
+ 	}
+ 
+ 	if app.Runtime == "docker" {
+diff --git a/apps/agent-go/persistent_app_data.go b/apps/agent-go/persistent_app_data.go
+new file mode 100644
+index 0000000..6e97380
+--- /dev/null
++++ b/apps/agent-go/persistent_app_data.go
+@@ -0,0 +1,16 @@
++package main
++
++import (
++	"crypto/sha256"
++	"fmt"
++)
++
++// Opt-in, fixed-target storage: tenants cannot choose a host path or volume name.
++// The immutable application ID prevents display-name changes from losing data.
++func persistentAppDataCompose(app Application) (string, string) {
++	if app.EnvVars["AETHER_PERSIST_APP_DATA"] != "true" || app.ID == "" {
++		return "", ""
++	}
++	name := fmt.Sprintf("aetherhost-data-%x", sha256.Sum256([]byte(app.ID)))
++	return "    volumes:\n      - appdata:/app/data\n", fmt.Sprintf("volumes:\n  appdata:\n    name: %s\n", name)
++}
+diff --git a/apps/agent-go/persistent_app_data_test.go b/apps/agent-go/persistent_app_data_test.go
+new file mode 100644
+index 0000000..63fcba8
+--- /dev/null
++++ b/apps/agent-go/persistent_app_data_test.go
+@@ -0,0 +1,35 @@
++package main
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestPersistentAppDataOptInAndIdentity(t *testing.T) {
++	app := Application{ID: "app-one", Name: "Crawler", Runtime: "github", GithubRepo: "https://github.com/example/crawler", EnvVars: map[string]string{}}
++	initial := renderRuntimeCompose(app, "crawler", "/control", "/projects", "example.com")
++	if strings.Contains(initial, "appdata") {
++		t.Fatal("storage must be opt in")
++	}
++	app.EnvVars["AETHER_PERSIST_APP_DATA"] = "true"
++	configured := renderRuntimeCompose(app, "crawler", "/control", "/projects", "example.com")
++	if !strings.Contains(configured, "appdata:/app/data") || !strings.Contains(configured, "name: aetherhost-data-") {
++		t.Fatal("missing durable named volume")
++	}
++	_, before := persistentAppDataCompose(app)
++	app.Name = "Renamed"
++	_, after := persistentAppDataCompose(app)
++	if before != after {
++		t.Fatal("renaming must preserve volume identity")
++	}
++	app.ID = "app-two"
++	_, other := persistentAppDataCompose(app)
++	if before == other {
++		t.Fatal("applications must not share data volumes")
++	}
++	app.ID = ""
++	mount, _ := persistentAppDataCompose(app)
++	if mount != "" {
++		t.Fatal("missing identity must not allocate shared storage")
++	}
++}

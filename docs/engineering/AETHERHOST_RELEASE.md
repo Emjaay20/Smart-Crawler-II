@@ -105,3 +105,45 @@ files.
   (UID `1000:1000`, mode `0700`) in `/srv/aetherhost/projects/smart-crawler/docker-compose.yml`.
   Note that if `aetherhost-agent` regenerates `docker-compose.yml` during an automated
   control-plane reprovision, the volume mount should be re-verified on the host.
+
+## Follow-up: persistent storage repaired after automated redeploy
+
+On 2026-11-15, a fresh server inspection found the running `24df972` app had
+**no mounts**. The platform had regenerated Compose without the manually added
+host bind mount. The prior paragraph records the earlier release, not the current
+storage configuration.
+
+The current live database was backed up and integrity-checked at
+`/root/smartcrawl-backups/smartcrawl-l7vWGCQ6/jobs.sqlite`, with a private off-server
+copy under `~/.codex/backups/smartcrawl/2026-11-15/`. Before migration it contained
+no jobs, keys or users. The older host database was preserved separately; its one
+guest session was not substituted for the current database.
+
+An opt-in named-volume feature was added to the Aetherhost GitHub-workload
+renderer. It is enabled for this application through `AETHER_PERSIST_APP_DATA=true`.
+The full Go agent suite passed before building and installing the patched agent.
+Other applications remain opted out. See the [patch and rollout record](../../ops/aetherhost/README.md).
+
+After gracefully stopping the app, all its database/WAL files were preserved at
+`/root/smartcrawl-backups/pre-volume-migration-20261115/data` and copied into
+`aetherhost-data-0861ebe1c7af3e44bce7542ab3659a46d6d3e4ef89f15d96924f6b35349f6eb8`.
+The provisioner now regenerates this same named mount at `/app/data` rather than
+discarding it. The first redeployment verified a writable mount, UID 1000,
+directory mode 0700, database integrity `ok`, HTTPS health/readiness 200 and
+unauthenticated admin access rejected with 401.
+
+A second full control-plane redeploy recreated the container at
+`2026-11-15T13:07:24Z`. A temporary private marker in `/app/data` survived that
+recreation, then was removed. SQLite integrity remained `ok`. Final HTTPS checks
+returned 200 for health/readiness, 401 for unauthenticated admin access and 200 for
+authenticated admin access. Observed container memory was 83.57 MiB after this
+check; this is an idle observation, not a load-test result. The final app image was
+`sha256:3fdfb08ff28750ca6a1a0345af545188b45304a3a23686e02750afa6fd2bb660`.
+
+The patch is now merged upstream through
+[Aetherhost PR #50](https://github.com/Emjaay20/AetherHost/pull/50), commit
+`3ae5e9eaf0d50b3daac5101137955cf481e3f03c`. Code checks passed. The initial automatic
+deployment refused the modified host checkout; those local edits were archived
+and removed, the source fast-forwarded, and the agent reconciled from clean merged
+source without replacing unrelated platform services. The application was still
+on released commit `24df972` at that verification point.

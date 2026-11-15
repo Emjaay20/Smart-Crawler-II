@@ -2,6 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { FirecrawlProvider } from '../src/firecrawl.js';
 
 describe('FirecrawlProvider', () => {
+  it.each([404, 429, 503])('rejects source HTTP %i even when the provider envelope reports success', async (statusCode) => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({
+      success: true,
+      data: {
+        markdown: '# Latest release\nVersion 1.0.0',
+        metadata: { statusCode, sourceURL: 'https://example.com/releases/latest' },
+      },
+    }), { status: 200 })) as typeof fetch;
+    const provider = new FirecrawlProvider('test-private-key', fetchImpl);
+    await expect(provider.scrape({
+      url: 'https://example.com/releases/latest', formats: ['markdown'],
+      onlyMainContent: true, js: false, provider: 'firecrawl',
+      timeoutMs: 1000, userAgent: 'SmartCrawl/1.0',
+    })).rejects.toMatchObject({ code: statusCode < 500 ? 'http_4xx' : 'http_5xx' });
+  });
+
   it('keeps its credential server-side and adapts a documented scrape response', async () => {
     const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(_input)).toBe('https://api.firecrawl.dev/v2/scrape');

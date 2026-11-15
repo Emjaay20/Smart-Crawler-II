@@ -28,6 +28,16 @@ function htmlFetch(map: Record<string, { status?: number; body: string; contentT
 }
 
 describe('scrape', () => {
+  it.each([404, 503])('rejects browser HTTP %i instead of extracting its body as success', async (statusCode) => {
+    await expect(scrape({ url: 'https://app.example/', js: true }, {
+      fetch: htmlFetch({}),
+      renderWithBrowser: async () => ({
+        html: articleHtml, finalUrl: 'https://app.example/', statusCode,
+        redirectChain: [], ttfbMs: 10,
+      }),
+    })).rejects.toMatchObject({ code: statusCode < 500 ? 'http_4xx' : 'http_5xx' });
+  });
+
   it('uses HTTP extraction and does not launch a browser for a real article', async () => {
     const renderWithBrowser = vi.fn();
     const result = await scrape(

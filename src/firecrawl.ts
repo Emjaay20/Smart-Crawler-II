@@ -2,6 +2,7 @@ import { enrichMarkdownDocument } from './extract.js';
 import type { ResolvedScrapeRequest } from './scrape.js';
 import type { ScrapeResult } from './types.js';
 import { validateHttpUrl } from './url.js';
+import { assertSourceStatus } from './errors.js';
 
 const FIRECRAWL_SCRAPE_URL = 'https://api.firecrawl.dev/v2/scrape';
 
@@ -66,6 +67,7 @@ export class FirecrawlProvider {
     const finalUrl = firstString(metadata.url, metadata.sourceURL) ?? request.url;
     validateHttpUrl(finalUrl);
     const statusCode = typeof metadata.statusCode === 'number' ? metadata.statusCode : 200;
+    assertSourceStatus(statusCode, finalUrl);
     const warning = typeof data.warning === 'string' ? data.warning : undefined;
     const markdown = typeof data.markdown === 'string' ? data.markdown : undefined;
     const enrichment = markdown ? enrichMarkdownDocument(markdown) : undefined;

@@ -86,6 +86,11 @@ with 401 and returned a healthy authenticated administrative report.
   container restart persistence, snapshot restore rehearsal, and production persistent
   mount (`/srv/aetherhost/data/smart-crawler:/app/data`) are documented in
   [Aetherhost release configuration](AETHERHOST_RELEASE.md).
+- A later automated redeploy removed that manual host bind mount. The follow-up
+  repair now gives this app an opt-in, application-specific named volume through
+  the patched provisioner; see the same release record and
+  [platform patch](../../ops/aetherhost/README.md). The older host data and current
+  container data were backed up separately before migration.
 - Outbound browser/proxy firewall policy on the host remains disabled by default
   (`SMARTCRAWL_BROWSER_EGRESS_ISOLATED=false`, `SMARTCRAWL_TRUSTED_PROXY_EGRESS=false`)
   because the production image excludes Chromium and no external proxy gateway is configured.
