@@ -1,0 +1,16 @@
+[Unit]
+Description=SmartCrawl verified SQLite snapshot and restore check
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/smartcrawl-backup/daily-backup.sh
+Environment=SMARTCRAWL_BACKUP_ROOT=/var/backups/smartcrawl
+UMask=0077
+TimeoutStartSec=15min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/smartcrawl /run/lock

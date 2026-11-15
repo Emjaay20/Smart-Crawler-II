@@ -38,6 +38,7 @@ export interface AppDeps {
   guestDemoLimit?: number;
   firecrawlConfigured?: boolean;
   proxyConfigured?: boolean;
+  browserConfigured?: boolean;
   /** Checkpoint writes are opt-in: HTML/Markdown may contain sensitive content. */
   enableCrawlCheckpoints?: boolean;
   /** Requires admin token and explicit acknowledgement of at-least-once requests. */
@@ -302,6 +303,7 @@ export function createApp(deps: AppDeps): Express {
     res.json({
       firecrawl: { configured: Boolean(deps.firecrawlConfigured) },
       proxy: { configured: Boolean(deps.proxyConfigured) },
+      browser: { configured: Boolean(deps.browserConfigured) },
     });
   });
 

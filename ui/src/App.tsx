@@ -130,7 +130,7 @@ export default function CrawlerInterface() {
   const [accountKeys, setAccountKeys] = useState<AccountKey[]>([]);
   const [firecrawlConfigured, setFirecrawlConfigured] = useState(false);
   const [proxyConfigured, setProxyConfigured] = useState(false);
-  const [proxyInput, setProxyInput] = useState('');
+  const [browserConfigured, setBrowserConfigured] = useState(false);
   const [crawlDelayMs, setCrawlDelayMs] = useState(250);
   const [creatingAccountKey, setCreatingAccountKey] = useState(false);
   const [recentJobs, setRecentJobs] = useState<JobSummaryItem[]>([]);
@@ -192,6 +192,9 @@ export default function CrawlerInterface() {
     void fetchProviderStatus().then((providers) => {
       setFirecrawlConfigured(Boolean(providers?.firecrawl.configured));
       setProxyConfigured(Boolean(providers?.proxy?.configured));
+      const hasBrowser = Boolean(providers?.browser?.configured);
+      setBrowserConfigured(hasBrowser);
+      if (!hasBrowser) setEngine((current) => current === 'playwright' ? 'auto' : current);
     });
   }, [apiKey]);
 
@@ -313,7 +316,6 @@ export default function CrawlerInterface() {
         limit,
         excludePaths,
         apiKey: apiKey.trim() || undefined,
-        proxy: proxyInput.trim() || undefined,
         crawlDelayMs: targetMode === 'crawl' ? crawlDelayMs : undefined,
       },
       () => refreshTelemetry(),
@@ -819,9 +821,9 @@ export default function CrawlerInterface() {
                         onChange={(e) => setEngine(e.target.value as EngineMode)}
                         className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs outline-none"
                       >
-                        <option value="auto">Auto (HTTP → PW)</option>
+                        <option value="auto">Auto (HTTP first)</option>
                         <option value="http">HTTP only</option>
-                        <option value="playwright">Playwright</option>
+                        <option value="playwright" disabled={!browserConfigured}>Playwright{browserConfigured ? '' : ' (not enabled)'}</option>
                       </select>
                     </div>
 
@@ -842,7 +844,14 @@ export default function CrawlerInterface() {
 
                   {mode === 'scrape' && !firecrawlConfigured && (
                     <p className="text-[11px] leading-relaxed text-[var(--ink-2)]">
-                      Managed fallback is not enabled on this deployment yet. Local HTTP and browser engines remain available.
+                      Managed fallback is not enabled on this deployment. Local HTTP extraction is available.
+                    </p>
+                  )}
+
+                  {!browserConfigured && (
+                    <p className="text-[11px] leading-relaxed text-[var(--ink-2)]">
+                      Local browser rendering is not enabled on this deployment.
+                      {firecrawlConfigured ? ' Choose the managed provider for pages that require JavaScript.' : ' Use a page that can be read over HTTP.'}
                     </p>
                   )}
 
@@ -910,18 +919,11 @@ export default function CrawlerInterface() {
                     </div>
                   )}
 
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Egress Proxy URL (optional residential / egress routing)
-                    </label>
-                    <input
-                      type="text"
-                      value={proxyInput}
-                      onChange={(e) => setProxyInput(e.target.value)}
-                      placeholder="http://10.0.0.1:8080 (or socks5://)"
-                      className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs outline-none font-mono focus:border-emerald-500"
-                    />
-                  </div>
+                  {proxyConfigured && (
+                    <p className="text-[11px] leading-relaxed text-[var(--ink-2)]">
+                      Outbound proxy routing is managed by the deployment operator.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

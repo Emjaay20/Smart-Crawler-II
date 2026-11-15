@@ -166,12 +166,12 @@ describe('http api', () => {
   it('reports only whether the optional provider is configured', async () => {
     const store = new JobStore(':memory:');
     stores.push(store);
-    const app = createApp({ store, scrape: async () => sample, firecrawlConfigured: true, proxyConfigured: true });
+    const app = createApp({ store, scrape: async () => sample, firecrawlConfigured: true, proxyConfigured: true, browserConfigured: true });
     const started = await listen(app);
     server = started.server;
 
     const providers = await (await fetch(`${started.base}/v1/providers`)).json();
-    expect(providers).toEqual({ firecrawl: { configured: true }, proxy: { configured: true } });
+    expect(providers).toEqual({ firecrawl: { configured: true }, proxy: { configured: true }, browser: { configured: true } });
   });
 
   it('exposes prometheus metrics after a scrape job', async () => {

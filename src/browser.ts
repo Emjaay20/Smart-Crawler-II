@@ -1,4 +1,5 @@
 import { chromium, type Browser, type Page } from 'playwright';
+import { existsSync } from 'node:fs';
 import { BoundedTaskScheduler, browserSchedulerLimits } from './browser-scheduler.js';
 import { ScrapeError } from './errors.js';
 import type { BrowserRender, ResolvedScrapeRequest } from './scrape.js';
@@ -18,6 +19,12 @@ interface BrowserState {
 let currentBrowser: Browser | null = null;
 let launching: Promise<Browser> | null = null;
 const instances = new Map<Browser, BrowserState>();
+
+/** Configuration signal only; external egress enforcement is still required. */
+export function isBrowserConfigured(): boolean {
+  return process.env.SMARTCRAWL_BROWSER_EGRESS_ISOLATED === 'true'
+    && existsSync(chromium.executablePath());
+}
 
 export function shouldRecycleBrowser(opts: {
   pagesSinceLaunch: number;

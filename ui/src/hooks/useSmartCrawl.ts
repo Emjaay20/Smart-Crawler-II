@@ -139,6 +139,7 @@ export interface AccountKey {
 }
 
 export interface ProviderStatus {
+  browser?: { configured: boolean };
   firecrawl: { configured: boolean };
   proxy?: { configured: boolean };
 }

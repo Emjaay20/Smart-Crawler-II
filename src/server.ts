@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { AccountStore } from './accounts.js';
-import { closeBrowser, renderWithPlaywright } from './browser.js';
+import { closeBrowser, isBrowserConfigured, renderWithPlaywright } from './browser.js';
 import { crawlSite, mapSite } from './crawl.js';
 import { KeyStore } from './keys.js';
 import { JobStore } from './jobs.js';
@@ -56,6 +56,7 @@ const app = createApp({
   metrics,
   firecrawlConfigured: Boolean(firecrawl),
   proxyConfigured,
+  browserConfigured: isBrowserConfigured(),
   enableCrawlCheckpoints,
   enableCheckpointResume,
   guestDemoLimit: Math.max(0, Number(process.env.SMARTCRAWL_GUEST_DEMO_LIMIT ?? 2)),

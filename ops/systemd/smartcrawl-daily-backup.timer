@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SmartCrawl database backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Africa/Lagos
+RandomizedDelaySec=10min
+Persistent=true
+Unit=smartcrawl-daily-backup.service
+
+[Install]
+WantedBy=timers.target

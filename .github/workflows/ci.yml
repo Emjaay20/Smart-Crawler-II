@@ -30,6 +30,9 @@ jobs:
       - name: Run Vitest suite
         run: npm test
 
+      - name: Verify backup integrity and restore checks
+        run: python3 -m unittest discover -s tests -p 'test_backup_verifier.py'
+
       - name: Check dependencies for high and critical advisories
         run: |
           npm audit --audit-level=high
