@@ -40,6 +40,7 @@ import {
   ArrowRight,
   Braces,
   Github,
+  AlertTriangle,
   Globe2,
   Network,
   Layers,
@@ -69,6 +70,7 @@ interface CrawledPageItem {
 }
 
 interface ScrapePayload {
+  warnings?: string[];
   markdown?: string;
   links?: string[];
   chunks?: ContentChunk[];
@@ -237,8 +239,10 @@ export default function CrawlerInterface() {
   };
 
   useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (activeTab !== 'console') return;
+    const consolePane = logsEndRef.current?.parentElement;
+    consolePane?.scrollTo({ top: consolePane.scrollHeight, behavior: 'smooth' });
+  }, [logs, activeTab]);
 
   const payload = data as ScrapePayload | null;
   const crawlPages = payload?.pages ?? [];
@@ -252,6 +256,7 @@ export default function CrawlerInterface() {
         wordCount: crawlPages[selectedPageIdx].wordCount,
         estimatedTokens: crawlPages[selectedPageIdx].estimatedTokens,
         engine: crawlPages[selectedPageIdx].engine,
+        statusCode: crawlPages[selectedPageIdx].statusCode,
       }
     : payload?.metadata;
   const discoveredLinks = payload?.links ?? [];
@@ -1091,6 +1096,19 @@ export default function CrawlerInterface() {
           </div>
 
           {/* Crawl Multi-Page Selector Bar */}
+          {payload?.warnings && payload.warnings.length > 0 && (
+            <div role="status" className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" aria-hidden="true" />
+                <div className="min-w-0 text-xs leading-relaxed">
+                  <p className="font-semibold">Extraction notes</p>
+                  {payload.warnings.map((warning, index) => (
+                    <p key={index} className="mt-1 break-words">{warning}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           {(activeTab === 'markdown' || activeTab === 'chunks') && crawlPages.length > 1 && (
             <div className="border-b border-[var(--border)] bg-[var(--paper-soft)] px-4 py-2 flex items-center gap-2 overflow-x-auto custom-scrollbar select-none">
               <span className="font-code text-[11px] text-[var(--ink-2)] shrink-0">Pages:</span>
@@ -1159,7 +1177,12 @@ export default function CrawlerInterface() {
                     <span className="truncate">
                       {crawlPages[selectedPageIdx]?.url ?? payload?.metadata?.finalUrl ?? url}
                     </span>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      {activeMeta.statusCode !== undefined && (
+                        <span className="px-2 py-0.5 rounded bg-[var(--paper-soft)] border border-[var(--border)]">
+                          HTTP {activeMeta.statusCode}
+                        </span>
+                      )}
                       {activeMeta.engine && (
                         <span className="px-2 py-0.5 rounded bg-[var(--paper-soft)] border border-[var(--border)]">
                           engine: {activeMeta.engine}

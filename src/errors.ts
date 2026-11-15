@@ -30,6 +30,16 @@ export class ScrapeError extends Error {
   }
 }
 
+/** Provider transport success does not imply the requested source page succeeded. */
+export function assertSourceStatus(statusCode: number, url: string): void {
+  if (statusCode >= 400 && statusCode < 500) {
+    throw new ScrapeError('http_4xx', `HTTP ${statusCode} fetching ${url}`);
+  }
+  if (statusCode >= 500) {
+    throw new ScrapeError('http_5xx', `HTTP ${statusCode} fetching ${url}`);
+  }
+}
+
 /**
  * Redact credentials before an exception is persisted in job logs, exposed via
  * status endpoints, or delivered to an operational alert.

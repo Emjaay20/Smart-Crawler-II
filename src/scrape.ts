@@ -3,7 +3,7 @@ import { createSafeFetch } from './egress.js';
 import { detectAntiBotChallenge } from './antibot.js';
 import type { DomainCircuitBreaker } from './circuit.js';
 import { extractFromHtml } from './extract.js';
-import { classifyError, ScrapeError } from './errors.js';
+import { assertSourceStatus, classifyError, ScrapeError } from './errors.js';
 import { fetchRobotsTxtCached, isUrlAllowedByRobots } from './robots.js';
 import {
   DEFAULT_FORMATS,
@@ -251,12 +251,7 @@ async function scrapeWithHttp(
     );
   }
 
-  if (response.status >= 400 && response.status < 500) {
-    throw new ScrapeError('http_4xx', `HTTP ${response.status} fetching ${request.url}`);
-  }
-  if (response.status >= 500) {
-    throw new ScrapeError('http_5xx', `HTTP ${response.status} fetching ${request.url}`);
-  }
+  assertSourceStatus(response.status, request.url);
 
   const extracted = extractFromHtml(html, finalUrl, {
     onlyMainContent: request.onlyMainContent,
@@ -285,6 +280,7 @@ async function scrapeWithBrowser(request: ResolvedScrapeRequest, deps: ScrapeDep
   if (finalUrl !== request.url) {
     validateHttpUrl(finalUrl);
   }
+  assertSourceStatus(rendered.statusCode, finalUrl);
   const extracted = extractFromHtml(rendered.html, finalUrl, {
     onlyMainContent: request.onlyMainContent,
     formats: request.formats,

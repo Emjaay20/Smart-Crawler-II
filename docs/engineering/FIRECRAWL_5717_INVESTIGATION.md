@@ -1,7 +1,7 @@
 # Firecrawl OSS Investigation — Issue #5717
 
 **Investigation date:** 2026-11-14  
-**Status:** Source inspection and reproduction design. **No reproduction performed, root cause unconfirmed, no upstream PR submitted.**  
+**Status:** Updated 2026-11-15: one hosted request reproduced the source/output inconsistency. Exact root cause remains unconfirmed. See [current evidence and validation limits](SOURCE_STATUS_INTEGRITY.md).
 **Issue:** https://github.com/firecrawl/firecrawl/issues/5717  
 **Upstream project:** https://github.com/firecrawl/firecrawl  
 **Source revision inspected:** Firecrawl default-branch code as returned by connected GitHub source lookup on 2026-11-14.
@@ -67,4 +67,4 @@ Before opening a PR, record:
 - Test commands, logs and results.
 - Maintainer feedback, PR link and final status.
 
-**Current state:** Investigation documented. No upstream write, issue comment, PR, runtime reproduction or model-behavior claim has been made.
+**Historical state (2026-11-14):** Investigation only; no runtime reproduction had been performed. The later hosted observation and upstream candidate are recorded in the linked update. No claim of a general model failure rate is made.

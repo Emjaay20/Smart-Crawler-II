@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-11-15T15:15:35.082Z",
+  "transportStatus": 200,
+  "success": true,
+  "sourceStatus": 404,
+  "sourceError": "Not Found",
+  "json": {
+    "version": "1.0",
+    "tag_name": "",
+    "published_at": "",
+    "prerelease": false,
+    "html_url": "",
+    "notes": "The release does not exist."
+  }
+}
