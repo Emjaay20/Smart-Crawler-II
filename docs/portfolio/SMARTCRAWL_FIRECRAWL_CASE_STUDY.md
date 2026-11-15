@@ -1,8 +1,9 @@
 # SmartCrawl — Web Extraction Platform Reliability Case Study
 
-**Portfolio engineering write-up**  
-**Repository:** [Emjaay20/Smart-Crawler-II](https://github.com/Emjaay20/Smart-Crawler-II)  
-**Status:** Tested draft engineering work; not an approved production release.
+**Portfolio engineering write-up**
+**Repository:** [Emjaay20/Smart-Crawler-II](https://github.com/Emjaay20/Smart-Crawler-II)
+**Live Deployment:** [https://smart-crawler.aetherhost.app](https://smart-crawler.aetherhost.app)
+**Status:** Verified in CI, local real-Chromium regression, isolated HTTPS staging, and Aetherhost production deployment.
 
 ## Problem
 
@@ -30,8 +31,8 @@ Each change was developed in a dedicated review branch and validated with TypeSc
 
 ## What the evidence does *not* establish
 
-- No production deployment of these branches.
-- No real-browser crash or high-volume network benchmark, and no independent penetration test.
+- Deployed on a single-node Aetherhost instance (`https://smart-crawler.aetherhost.app`) with persistent SQLite WAL storage; not a multi-region distributed deployment.
+- No high-volume external network benchmark or independent penetration test. A local test verifies real Chromium context isolation and recovery after a CDP-triggered process crash; this does not establish large browser fleet reliability.
 - No guarantee of distributed worker exactly-once semantics.
 - No enterprise SAML/SCIM, immutable compliance audit, or formal certification.
 - No accepted Firecrawl OSS contribution. The investigation of [Firecrawl Issue #5717](https://github.com/firecrawl/firecrawl/issues/5717) is documented, but the reported JSON extraction anomaly has not been locally reproduced.
@@ -40,7 +41,7 @@ Each change was developed in a dedicated review branch and validated with TypeSc
 
 **Product Engineer — Scrape:** Strongest direct match through extraction quality concerns, API reliability, safe output handling, SDK ergonomics, reproducible tests and developer documentation. Show a controlled demo and specific PR review history.
 
-**Web Automation Engineer:** Demonstrates a starting point in Playwright lifecycle management, bounded browser contexts and recoverability. A real Chromium staging benchmark, CDP-level diagnostics and networking investigations are still needed before claiming advanced browser fleet experience.
+**Web Automation Engineer:** Demonstrates Playwright lifecycle management, bounded browser contexts and real Chromium crash recoverability. CDP is used to inject an actual process crash in a controlled local fixture. A real network staging benchmark, deeper diagnostics and networking investigations are still needed before claiming advanced browser fleet experience.
 
 **Enterprise Solutions Engineer:** Supports discussions of tenancy, API keys, operational reliability, deployment and incident readiness. Do not position the current audit as enterprise compliance or established IAM integration.
 
@@ -54,6 +55,9 @@ Each change was developed in a dedicated review branch and validated with TypeSc
 - [SDK timeouts](../engineering/PHASE4_SDK_DEADLINES.md)
 - [Audit boundaries](../engineering/PHASE5_AUTH_AUDIT.md)
 - [Firecrawl upstream investigation](../engineering/FIRECRAWL_5717_INVESTIGATION.md)
+- [Local release verification and added regression coverage](../engineering/LOCAL_RELEASE_VALIDATION.md)
+- [Aetherhost release configuration](../engineering/AETHERHOST_RELEASE.md)
+- [Two supplied Firecrawl roles and application drafts](FIRECRAWL_APPLICATION_NOTES.md)
 
 ## Next milestone
 

@@ -2,7 +2,7 @@
 
 URL in. Clean markdown and structured JSON out.
 
-Live: [https://smart-crawler.aetherhost.com.ng](https://smart-crawler.aetherhost.com.ng)  
+Live: [https://smart-crawler.aetherhost.app](https://smart-crawler.aetherhost.app)
 OpenAPI: [`openapi.yaml`](./openapi.yaml)
 
 Fetch-first: HTTP + Mozilla Readability by default. Playwright only when the page is a JS shell (not installed on AetherHost’s 512MB tenant). Jobs persist in SQLite.
@@ -13,7 +13,7 @@ Fetch-first: HTTP + Mozilla Readability by default. Playwright only when the pag
 import { SmartCrawl } from 'smart-crawler';
 
 const sc = new SmartCrawl({
-  baseUrl: 'https://smart-crawler.aetherhost.com.ng',
+  baseUrl: 'https://smart-crawler.aetherhost.app',
   apiKey: process.env.SMARTCRAWL_API_KEY, // required once auth is on
 });
 
@@ -27,7 +27,7 @@ console.log(doc.markdown);
 
 ```bash
 npm run build
-npx smartcrawl --base https://smart-crawler.aetherhost.com.ng health
+npx smartcrawl --base https://smart-crawler.aetherhost.app health
 npx smartcrawl me
 npx smartcrawl jobs
 npx smartcrawl report
@@ -190,6 +190,9 @@ SmartCrawl incorporates production crawler infrastructure patterned after high-t
 
 ## Docker / AetherHost
 
+See the [Aetherhost release configuration](./docs/engineering/AETHERHOST_RELEASE.md)
+for persistent storage, low-memory settings, staging checks and rollback steps.
+
 Listens on `PORT` (default 3000). Health check: `GET /health`.
 
 ```bash
@@ -203,7 +206,7 @@ Env:
 - `HOST` — bind address (default `0.0.0.0`)
 - `JOBS_DB` — SQLite path (default `/app/data/jobs.sqlite`)
 - `PUBLIC_DIR` — playground build (default `/app/ui/dist`)
-- `SMARTCRAWL_ADMIN_TOKEN` — when set, scrape/map/crawl require a user API key
+- `SMARTCRAWL_ADMIN_TOKEN` — protects administrative routes; the configured key store independently enforces user API keys and the guest allowance
 - `SMARTCRAWL_ADMIN_TOKEN_FILE` — optional file path for the admin token (defaults to `/app/data/admin.token` if present)
 - `SMARTCRAWL_SLACK_WEBHOOK_URL` — optional Slack incoming webhook for automatic failure-spike alerts and operational digests
 - `SMARTCRAWL_ALERT_FAILURE_THRESHOLD` — consecutive failures before firing a Slack alert (default `3`)
@@ -219,17 +222,17 @@ Env:
 
 ## Auth (multiple users)
 
-Until `SMARTCRAWL_ADMIN_TOKEN` (or `/app/data/admin.token`) is set, the API is open. Set it on the host, then mint keys. The raw key is shown **once**.
+The server always configures a key store, so API authentication remains enforced even when no admin token is available. The guest allowance defaults to two jobs per client IP; set `SMARTCRAWL_GUEST_DEMO_LIMIT=0` for key-only access. Configure `SMARTCRAWL_ADMIN_TOKEN` (or `/app/data/admin.token`) to manage keys. The raw user key is shown **once**.
 
 ```bash
 export SMARTCRAWL_ADMIN_TOKEN='a-long-random-secret'
 
-curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/admin/keys \
+curl -s -X POST https://smart-crawler.aetherhost.app/v1/admin/keys \
   -H "authorization: Bearer $SMARTCRAWL_ADMIN_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"name":"alice","dailyLimit":50}'
 
-curl -s -X POST https://smart-crawler.aetherhost.com.ng/v1/scrape \
+curl -s -X POST https://smart-crawler.aetherhost.app/v1/scrape \
   -H "authorization: Bearer sc_live_YOUR_KEY" \
   -H 'content-type: application/json' \
   -d '{"url":"https://example.com"}'

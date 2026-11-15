@@ -30,6 +30,17 @@ jobs:
       - name: Run Vitest suite
         run: npm test
 
+      - name: Check dependencies for high and critical advisories
+        run: |
+          npm audit --audit-level=high
+          npm --prefix ui audit --audit-level=high
+
+      - name: Install controlled browser test runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify real Chromium isolation and crash recovery
+        run: npm run test:browser
+
       - name: Run synthetic crawl concurrency benchmark
         run: npm run bench:crawl
 

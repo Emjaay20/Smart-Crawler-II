@@ -4,7 +4,7 @@ info:
   version: 3.0.0
   description: URL in. Clean markdown and structured JSON out.
 servers:
-  - url: https://smart-crawler.aetherhost.com.ng
+  - url: https://smart-crawler.aetherhost.app
 paths:
   /health:
     get:

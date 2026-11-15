@@ -8,14 +8,14 @@ on:
       base_url:
         description: 'Target SmartCrawl deployment URL'
         required: false
-        default: 'https://smart-crawler.aetherhost.com.ng'
+        default: 'https://smart-crawler.aetherhost.app'
 
 jobs:
   prod-smoke-and-report:
     name: Synthetic Production Scrape & Slack Digest
     runs-on: ubuntu-latest
     env:
-      SMARTCRAWL_URL: ${{ github.event.inputs.base_url || 'https://smart-crawler.aetherhost.com.ng' }}
+      SMARTCRAWL_URL: ${{ github.event.inputs.base_url || 'https://smart-crawler.aetherhost.app' }}
       SMARTCRAWL_API_KEY: ${{ secrets.SMARTCRAWL_API_KEY }}
       SMARTCRAWL_ADMIN_TOKEN: ${{ secrets.SMARTCRAWL_ADMIN_TOKEN }}
       SMARTCRAWL_SLACK_WEBHOOK_URL: ${{ secrets.SMARTCRAWL_SLACK_WEBHOOK_URL }}

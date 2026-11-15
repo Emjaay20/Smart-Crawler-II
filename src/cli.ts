@@ -7,7 +7,7 @@ const program = new Command();
 program
   .name('smartcrawl')
   .description('URL in. Clean markdown and structured JSON out.')
-  .option('--base <url>', 'API base URL', process.env.SMARTCRAWL_URL ?? 'https://smart-crawler.aetherhost.com.ng')
+  .option('--base <url>', 'API base URL', process.env.SMARTCRAWL_URL ?? 'https://smart-crawler.aetherhost.app')
   .option('--key <key>', 'API key', process.env.SMARTCRAWL_API_KEY);
 
 program

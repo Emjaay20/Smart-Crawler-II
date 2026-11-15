@@ -7,3 +7,10 @@ data
 output
 *.log
 .DS_Store
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.pem
+*.key

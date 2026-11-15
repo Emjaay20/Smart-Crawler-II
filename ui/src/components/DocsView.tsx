@@ -266,7 +266,7 @@ export const DocsView: React.FC = () => {
 {`import { SmartCrawl } from 'smart-crawler';
 
 const sc = new SmartCrawl({
-  baseUrl: 'https://smart-crawler.aetherhost.com.ng',
+  baseUrl: 'https://smart-crawler.aetherhost.app',
   apiKey: process.env.SMARTCRAWL_API_KEY,
 });
 
