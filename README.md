@@ -190,6 +190,9 @@ SmartCrawl incorporates production crawler infrastructure patterned after high-t
 
 ## Docker / AetherHost
 
+Daily verified database backups and the `npm run backup:fetch` off-server copy
+command are described in [backup operations](./docs/engineering/BACKUP_OPERATIONS.md).
+
 See the [Aetherhost release configuration](./docs/engineering/AETHERHOST_RELEASE.md)
 for persistent storage, low-memory settings, staging checks and rollback steps.
 

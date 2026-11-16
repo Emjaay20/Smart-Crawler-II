@@ -94,8 +94,12 @@ with 401 and returned a healthy authenticated administrative report.
 - Outbound browser/proxy firewall policy on the host remains disabled by default
   (`SMARTCRAWL_BROWSER_EGRESS_ISOLATED=false`, `SMARTCRAWL_TRUSTED_PROXY_EGRESS=false`)
   because the production image excludes Chromium and no external proxy gateway is configured.
-- Firecrawl #5717 remains an upstream investigation ([notes](FIRECRAWL_5717_INVESTIGATION.md)).
-  The public report does not establish whether the model, backend or integration
-  introduced the unsupported facts; no speculative upstream PR has been submitted.
+- Firecrawl #5717 was reproduced in one hosted request. [Draft PR #5756](https://github.com/firecrawl/firecrawl/pull/5756)
+  proposes a guard and regressions; local upstream tests are blocked by missing
+  FoundationDB client headers. It has no maintainer feedback yet and is not an
+  accepted upstream fix. See [the evidence and validation limits](SOURCE_STATUS_INTEGRITY.md).
+- Daily backups passed a scheduled run on 2026-11-16. The off-server fetch command
+  adds independent checksum, integrity and restore verification; see
+  [backup operations](BACKUP_OPERATIONS.md).
 - [Role-specific application materials](../portfolio/FIRECRAWL_APPLICATION_NOTES.md)
   have been tailored with Yusuf Abubakar Saka's CV details and both Ashby job descriptions.

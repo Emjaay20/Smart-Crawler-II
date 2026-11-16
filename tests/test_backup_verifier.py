@@ -1,4 +1,5 @@
 import hashlib
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -14,7 +15,7 @@ class BackupVerifierTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             snapshot = root / 'jobs.sqlite'
-            with sqlite3.connect(snapshot) as database:
+            with closing(sqlite3.connect(snapshot)) as database, database:
                 database.execute('CREATE TABLE jobs (id TEXT, data TEXT)')
                 database.execute('INSERT INTO jobs VALUES (?, ?)', ('job-1', 'private-content'))
             subprocess.run(['python3', str(VERIFIER), directory], check=True, capture_output=True)

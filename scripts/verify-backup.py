@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify a standalone snapshot and a clean-directory restore; emit no row data."""
 import datetime
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -12,7 +13,7 @@ import tempfile
 
 
 def inspect_database(path):
-    with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as database:
+    with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as database:
         if database.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
             raise ValueError('database integrity check failed')
         return database.execute('SELECT count(*) FROM jobs').fetchone()[0]
