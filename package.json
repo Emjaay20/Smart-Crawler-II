@@ -29,7 +29,8 @@
     "build": "tsc -p tsconfig.json && npm --prefix ui run build",
     "bench:crawl": "tsx scripts/benchmark-crawl.ts",
     "db:backup": "tsx scripts/backup-jobs.ts",
-    "test:browser": "SMARTCRAWL_TEST_REAL_BROWSER=true vitest run tests/browser-live.test.ts"
+    "test:browser": "SMARTCRAWL_TEST_REAL_BROWSER=true vitest run tests/browser-live.test.ts",
+    "backup:fetch": "python3 scripts/fetch-backup.py"
   },
   "keywords": [
     "scrape",
