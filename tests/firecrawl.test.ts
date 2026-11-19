@@ -60,4 +60,39 @@ describe('FirecrawlProvider', () => {
     expect(FirecrawlProvider.fromEnv({})).toBeUndefined();
     expect(FirecrawlProvider.fromEnv({ FIRECRAWL_API_KEY: ' configured-key ' })).toBeInstanceOf(FirecrawlProvider);
   });
+
+  it('supports Firecrawl Local on localhost without requiring an API key', async () => {
+    const localProvider = FirecrawlProvider.fromEnv({
+      FIRECRAWL_BASE_URL: 'http://127.0.0.1:3002',
+    });
+    expect(localProvider).toBeDefined();
+    expect(localProvider?.isLocal).toBe(true);
+    expect(localProvider?.baseUrl).toBe('http://127.0.0.1:3002');
+    expect(localProvider?.scrapeUrl).toBe('http://127.0.0.1:3002/v2/scrape');
+
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(_input)).toBe('http://127.0.0.1:3002/v2/scrape');
+      // No authorization header needed for local binary
+      expect(init?.headers).not.toHaveProperty('authorization');
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          markdown: '# Local Extracted Content',
+          metadata: { statusCode: 200, sourceURL: 'https://example.com/local-test' },
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const provider = new FirecrawlProvider(undefined, 'http://127.0.0.1:3002', fetchImpl);
+    const result = await provider.scrape({
+      url: 'https://example.com/local-test',
+      formats: ['markdown'],
+      onlyMainContent: true,
+      js: false,
+      provider: 'firecrawl',
+      timeoutMs: 1000,
+      userAgent: 'SmartCrawl/1.0',
+    });
+    expect(result.markdown).toBe('# Local Extracted Content');
+  });
 });

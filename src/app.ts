@@ -37,6 +37,7 @@ export interface AppDeps {
   freeDailyLimit?: number;
   guestDemoLimit?: number;
   firecrawlConfigured?: boolean;
+  firecrawlLocal?: boolean;
   proxyConfigured?: boolean;
   browserConfigured?: boolean;
   /** Checkpoint writes are opt-in: HTML/Markdown may contain sensitive content. */
@@ -301,7 +302,10 @@ export function createApp(deps: AppDeps): Express {
 
   app.get('/v1/providers', (_req, res) => {
     res.json({
-      firecrawl: { configured: Boolean(deps.firecrawlConfigured) },
+      firecrawl: {
+        configured: Boolean(deps.firecrawlConfigured),
+        isLocal: Boolean(deps.firecrawlLocal),
+      },
       proxy: { configured: Boolean(deps.proxyConfigured) },
       browser: { configured: Boolean(deps.browserConfigured) },
     });

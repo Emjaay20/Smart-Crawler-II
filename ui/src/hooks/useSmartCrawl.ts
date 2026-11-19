@@ -140,7 +140,10 @@ export interface AccountKey {
 
 export interface ProviderStatus {
   browser?: { configured: boolean };
-  firecrawl: { configured: boolean };
+  firecrawl: {
+    configured: boolean;
+    isLocal?: boolean;
+  };
   proxy?: { configured: boolean };
 }
 

@@ -4,7 +4,23 @@ import type { ScrapeResult } from './types.js';
 import { validateHttpUrl } from './url.js';
 import { assertSourceStatus } from './errors.js';
 
-const FIRECRAWL_SCRAPE_URL = 'https://api.firecrawl.dev/v2/scrape';
+const DEFAULT_FIRECRAWL_API_URL = 'https://api.firecrawl.dev';
+
+export function resolveFirecrawlBaseUrl(env = process.env): string {
+  const custom = env.FIRECRAWL_BASE_URL?.trim() || env.FIRECRAWL_API_URL?.trim();
+  if (custom) return custom.replace(/\/+$/, '');
+  return DEFAULT_FIRECRAWL_API_URL;
+}
+
+export function isLocalFirecrawlEndpoint(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
+  }
+}
 
 interface FirecrawlResponse {
   success?: boolean;
@@ -25,30 +41,59 @@ interface FirecrawlResponse {
 }
 
 /**
- * Small server-side adapter for Firecrawl's documented v2 scrape endpoint.
- * It deliberately accepts only a server environment key: browser clients never
- * receive or submit provider credentials.
+ * Adapter for Firecrawl's v2 scrape endpoint, supporting either Firecrawl Cloud
+ * (https://api.firecrawl.dev) or Firecrawl Local (e.g. http://127.0.0.1:3002).
+ * When targeting a local binary endpoint, an API key is optional.
  */
 export class FirecrawlProvider {
+  readonly baseUrl: string;
+  readonly isLocal: boolean;
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
-    private readonly apiKey: string,
-    private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    private readonly apiKey?: string,
+    baseUrlOrFetch?: string | typeof fetch,
+    fetchImpl?: typeof fetch,
+  ) {
+    if (typeof baseUrlOrFetch === 'function') {
+      this.baseUrl = DEFAULT_FIRECRAWL_API_URL;
+      this.fetchImpl = baseUrlOrFetch;
+    } else {
+      this.baseUrl = baseUrlOrFetch ? baseUrlOrFetch.replace(/\/+$/, '') : DEFAULT_FIRECRAWL_API_URL;
+      this.fetchImpl = fetchImpl ?? fetch;
+    }
+    this.isLocal = isLocalFirecrawlEndpoint(this.baseUrl);
+  }
 
   static fromEnv(env = process.env): FirecrawlProvider | undefined {
+    const baseUrl = resolveFirecrawlBaseUrl(env);
+    const isLocal = isLocalFirecrawlEndpoint(baseUrl);
     const apiKey = env.FIRECRAWL_API_KEY?.trim();
-    return apiKey ? new FirecrawlProvider(apiKey) : undefined;
+
+    // For cloud Firecrawl, apiKey is strictly required. For local Firecrawl, it's optional.
+    if (!apiKey && !isLocal) {
+      return undefined;
+    }
+    return new FirecrawlProvider(apiKey, baseUrl);
+  }
+
+  get scrapeUrl(): string {
+    return `${this.baseUrl}/v2/scrape`;
   }
 
   async scrape(request: ResolvedScrapeRequest): Promise<ScrapeResult> {
     const started = Date.now();
     const formats = request.formats.filter((format) => format !== 'metadata');
-    const response = await this.fetchImpl(FIRECRAWL_SCRAPE_URL, {
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
+    if (this.apiKey) {
+      headers.authorization = `Bearer ${this.apiKey}`;
+    }
+
+    const response = await this.fetchImpl(this.scrapeUrl, {
       method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.apiKey}`,
-        'content-type': 'application/json',
-      },
+      headers,
       signal: AbortSignal.timeout(request.timeoutMs),
       body: JSON.stringify({
         url: request.url,

@@ -35,7 +35,34 @@ npx smartcrawl scrape https://example.com --provider auto
 npx smartcrawl map https://example.com --limit 10
 npx smartcrawl crawl https://example.com --limit 3
 npx smartcrawl export <jobId> > dataset.jsonl
+npx smartcrawl mcp
 ```
+
+### AI Agent Integration (Model Context Protocol / MCP)
+
+SmartCrawl provides a built-in stdio Model Context Protocol (MCP) server for AI coding tools (Claude Code, Cursor, Windsurf, Codex):
+
+```bash
+npx smartcrawl mcp
+```
+
+Configure in your tool's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "smartcrawl": {
+      "command": "npx",
+      "args": ["smartcrawl", "mcp"]
+    }
+  }
+}
+```
+
+Provides native agent tools:
+- `smartcrawl_scrape({ url, js, provider })`: Scrapes a URL to clean markdown and structured content.
+- `smartcrawl_crawl({ url, limit })`: Bounded crawl over same-origin links.
+- `smartcrawl_map({ url, limit })`: Fast same-origin link and sitemap discovery.
 
 Env: `SMARTCRAWL_URL`, `SMARTCRAWL_API_KEY`. Flags: `--base`, `--key`.
 
@@ -94,7 +121,7 @@ curl -s http://localhost:3000/health
 
 `js`: `"auto"` (default) uses HTTP then Playwright if the body looks empty; `false` is HTTP only; `true` always uses Chromium.
 
-`provider`: `"local"` (default) keeps work inside SmartCrawl's HTTP/Playwright pipeline. When an operator has configured `FIRECRAWL_API_KEY` as a private deployment environment variable, a single-page request may use `"firecrawl"`, or `"auto"` may use it only after an eligible local failure. Provider credentials are never accepted from, returned to, or stored by the browser. Map and crawl jobs always stay local so a multi-page request cannot unexpectedly consume managed-provider credits.
+`provider`: `"local"` (default) keeps work inside SmartCrawl's HTTP/Playwright pipeline. When an operator has configured `FIRECRAWL_API_KEY` (for Firecrawl Cloud) or `FIRECRAWL_BASE_URL` (such as `http://127.0.0.1:3002` for air-gapped `firecrawl-local`), a single-page request may use `"firecrawl"`, or `"auto"` may use it only after an eligible local failure. Provider credentials are never accepted from, returned to, or stored by the browser. Map and crawl jobs always stay local so a multi-page request cannot unexpectedly consume managed-provider credits.
 
 Successful `data`:
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { SmartCrawl, SmartCrawlError } from './client.js';
+import { runMcpServer } from './mcp.js';
 
 const program = new Command();
 
@@ -95,6 +96,14 @@ program
     } else {
       print(await sc.report());
     }
+  });
+
+program
+  .command('mcp')
+  .description('Start Model Context Protocol (MCP) server over stdio for AI agents')
+  .action(async () => {
+    const opts = program.opts<{ base: string; key?: string }>();
+    await runMcpServer({ baseUrl: opts.base, apiKey: opts.key || undefined });
   });
 
 program.parseAsync(process.argv).catch((err) => {

@@ -129,6 +129,7 @@ export default function CrawlerInterface() {
   const [account, setAccount] = useState<AccountSession | null>(null);
   const [accountKeys, setAccountKeys] = useState<AccountKey[]>([]);
   const [firecrawlConfigured, setFirecrawlConfigured] = useState(false);
+  const [firecrawlLocal, setFirecrawlLocal] = useState(false);
   const [proxyConfigured, setProxyConfigured] = useState(false);
   const [browserConfigured, setBrowserConfigured] = useState(false);
   const [crawlDelayMs, setCrawlDelayMs] = useState(250);
@@ -191,6 +192,7 @@ export default function CrawlerInterface() {
     });
     void fetchProviderStatus().then((providers) => {
       setFirecrawlConfigured(Boolean(providers?.firecrawl.configured));
+      setFirecrawlLocal(Boolean(providers?.firecrawl.isLocal));
       setProxyConfigured(Boolean(providers?.proxy?.configured));
       const hasBrowser = Boolean(providers?.browser?.configured);
       setBrowserConfigured(hasBrowser);
@@ -809,8 +811,12 @@ export default function CrawlerInterface() {
                           className="sc-select w-full px-2 py-1.5 text-xs outline-none"
                         >
                           <option value="local">Local engines only</option>
-                          <option value="auto" disabled={!firecrawlConfigured}>Auto fallback {firecrawlConfigured ? '' : '(not enabled)'}</option>
-                          <option value="firecrawl" disabled={!firecrawlConfigured}>Managed provider {firecrawlConfigured ? '' : '(not enabled)'}</option>
+                          <option value="auto" disabled={!firecrawlConfigured}>
+                            Auto fallback {firecrawlConfigured ? (firecrawlLocal ? '(Firecrawl Local)' : '(Cloud API)') : '(not enabled)'}
+                          </option>
+                          <option value="firecrawl" disabled={!firecrawlConfigured}>
+                            Managed provider {firecrawlConfigured ? (firecrawlLocal ? '(Firecrawl Local)' : '(Cloud API)') : '(not enabled)'}
+                          </option>
                         </select>
                       </div>
                     )}
@@ -857,7 +863,9 @@ export default function CrawlerInterface() {
 
                   {mode === 'scrape' && provider !== 'local' && firecrawlConfigured && (
                     <p className="text-[11px] leading-relaxed text-[var(--ink-2)]">
-                      Managed requests use the server’s configured provider account. Its key is never sent to your browser.
+                      {firecrawlLocal
+                        ? 'Managed requests route to a local Firecrawl binary on localhost (offline / air-gapped).'
+                        : 'Managed requests use the server’s configured provider account. Its key is never sent to your browser.'}
                     </p>
                   )}
 

@@ -55,6 +55,7 @@ const app = createApp({
   publicDir,
   metrics,
   firecrawlConfigured: Boolean(firecrawl),
+  firecrawlLocal: Boolean(firecrawl?.isLocal),
   proxyConfigured,
   browserConfigured: isBrowserConfigured(),
   enableCrawlCheckpoints,
