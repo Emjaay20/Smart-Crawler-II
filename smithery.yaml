@@ -1,0 +1,32 @@
+# Smithery configuration file
+# https://smithery.ai/docs/config
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      baseUrl:
+        type: string
+        default: "https://smart-crawler.aetherhost.app"
+        description: "SmartCrawl API base endpoint URL (defaults to hosted production instance)"
+      apiKey:
+        type: string
+        description: "Optional SmartCrawl API key for authenticated operations and higher limits"
+  commandFunction: |-
+    (config) => ({
+      command: 'node',
+      args: [
+        'dist/cli.js',
+        'mcp',
+        '--base',
+        config.baseUrl || 'https://smart-crawler.aetherhost.app',
+        ...(config.apiKey ? ['--key', config.apiKey] : [])
+      ],
+      env: {
+        SMARTCRAWL_URL: config.baseUrl || 'https://smart-crawler.aetherhost.app',
+        SMARTCRAWL_API_KEY: config.apiKey || ''
+      }
+    })
+  exampleConfig:
+    baseUrl: "https://smart-crawler.aetherhost.app"

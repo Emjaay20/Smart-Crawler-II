@@ -40,31 +40,57 @@ npx smartcrawl mcp
 
 ### AI Agent Integration (Model Context Protocol / MCP)
 
-SmartCrawl provides a built-in stdio Model Context Protocol (MCP) server for AI coding tools (Claude Code, Cursor, Windsurf, Codex):
+SmartCrawl provides a production-ready stdio Model Context Protocol (MCP) server for AI coding assistants and agents (Claude Desktop, Cursor, Windsurf, Codex, Smithery, Glama).
+
+#### 1. Instant Install via Smithery
+
+To automatically install SmartCrawl MCP into your AI client via [Smithery](https://smithery.ai):
 
 ```bash
-npx smartcrawl mcp
+# For Claude Desktop
+npx -y @smithery/cli install Emjaay20/Smart-Crawler-II --client claude
+
+# For Cursor
+npx -y @smithery/cli install Emjaay20/Smart-Crawler-II --client cursor
 ```
 
-Configure in your tool's MCP configuration:
+#### 2. Manual Client Configuration
 
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
     "smartcrawl": {
-      "command": "npx",
-      "args": ["smartcrawl", "mcp"]
+      "command": "node",
+      "args": ["/PATH/TO/Smart-Crawler-V2/dist/cli.js", "mcp"]
     }
   }
 }
 ```
 
-Provides native agent tools:
-- `smartcrawl_scrape({ url, js, provider })`: Scrapes a URL to clean markdown and structured content.
-- `smartcrawl_crawl({ url, limit })`: Bounded crawl over same-origin links.
-- `smartcrawl_map({ url, limit })`: Fast same-origin link and sitemap discovery.
+**Cursor** (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "smartcrawl": {
+      "command": "node",
+      "args": ["/PATH/TO/Smart-Crawler-V2/dist/cli.js", "mcp"]
+    }
+  }
+}
+```
 
-Env: `SMARTCRAWL_URL`, `SMARTCRAWL_API_KEY`. Flags: `--base`, `--key`.
+> **Note:** By default, the MCP server connects directly to the live hosted instance at `https://smart-crawler.aetherhost.app`. You can target a custom or local endpoint by passing `--base http://127.0.0.1:3000` or setting `SMARTCRAWL_URL`.
+
+#### Available MCP Tools
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `smartcrawl_scrape` | `url` (string, required)<br>`js` (`"auto"` \| `"true"` \| `"false"`)<br>`provider` (`"local"` \| `"auto"` \| `"firecrawl"`) | Scrapes a web page to clean markdown and structured content. |
+| `smartcrawl_crawl` | `url` (string, required)<br>`limit` (number, default 5, max 50) | Recursively crawls same-origin pages and returns structured results. |
+| `smartcrawl_map` | `url` (string, required)<br>`limit` (number, default 50) | Fast discovery of same-origin links and sitemap entries. |
+
+Env variables: `SMARTCRAWL_URL`, `SMARTCRAWL_API_KEY`. Flags: `--base`, `--key`.
 
 ## Quick start (local)
 

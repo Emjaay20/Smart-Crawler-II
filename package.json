@@ -12,8 +12,17 @@
     }
   },
   "bin": {
-    "smartcrawl": "./dist/cli.js"
+    "smartcrawl": "./dist/cli.js",
+    "smart-crawler": "./dist/cli.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Emjaay20/Smart-Crawler-II.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Emjaay20/Smart-Crawler-II/issues"
+  },
+  "homepage": "https://smart-crawler.aetherhost.app",
   "files": [
     "dist",
     "openapi.yaml",
@@ -33,9 +42,15 @@
     "backup:fetch": "python3 scripts/fetch-backup.py"
   },
   "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "smithery",
+    "glama",
     "scrape",
     "markdown",
     "crawler",
+    "web-scraping",
     "playwright"
   ],
   "license": "ISC",
