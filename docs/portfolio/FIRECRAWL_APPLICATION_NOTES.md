@@ -15,7 +15,7 @@ engineering evidence, and Yusuf Abubakar Saka's CV (`Yusuf_Abubakar_Saka_CV.pdf`
 - **Experience:**
   - **Freelance Full-Stack Software Engineer & Web Developer** (2019 – Present, Abuja / Remote): 5+ years delivering 30+ production web systems and full-stack TypeScript/React/Next.js/Node.js and WordPress applications across government, e-commerce, and nonprofit clients, plus building and operating **SmartCrawl** and **AetherHost** (`aetherhost.app`).
   - **Web Support Engineer — Rooah LLC, Delaware** (2020): Built and QA'd client web applications, resolved production issues, and maintained server uptime.
-- **Location & work authorization note:** Based in Abuja, Nigeria. Both Ashby postings list hybrid work in San Francisco or Toronto (3+ days onsite/week) with case-by-case Canadian work permit sponsorship or US O-1/TN/H-1B transfer paths, plus a paid remote work-trial evaluation. Explicitly note location in Nigeria and openness to the remote work trial and Canadian/US sponsorship pathways when submitting.
+- **Location & work authorization note:** Based in Abuja, Nigeria. Both Ashby postings list hybrid work in San Francisco or Toronto (3+ days onsite/week) with case-by-case Canadian work permit sponsorship and specific existing-US-authorization routes. The work trial is described as remote-friendly. Confirm personal authorization, relocation and timing before submission; sponsorship is not guaranteed.
 
 ## Role fit
 
@@ -35,9 +35,9 @@ I'm applying for the Product Engineer – Scrape role because I've spent my rece
 - **HTTP-first extraction & SDK ergonomics:** Built a Readability-based extraction pipeline with optional Playwright fallback and a TypeScript SDK featuring per-request network deadlines (`AbortSignal`), bounded polling budgets, typed error classes, and explicit redirect refusal.
 - **Safe outbound networking & tenant isolation:** Implemented DNS-aware public-destination validation with socket IP pinning across redirects, opaque `HttpOnly`/`Secure` guest session cookies, atomic quota enforcement, and credential redaction.
 - **Deterministic concurrent crawling & durability:** Built a bounded breadth-first scheduler (concurrency 1–4) with per-origin pacing, versioned SQLite WAL checkpoints, explicit admin resume from the last committed frontier (verified across `SIGKILL` worker crashes), and online `VACUUM INTO` snapshot backups.
-- **Verification:** Backed by 146 passing automated tests, a separate real-Chromium CDP crash-recovery test, zero npm audit vulnerabilities across server and UI, and live deployment on my self-hosted PaaS ([AetherHost](https://smart-crawler.aetherhost.app)).
+- **Verification:** Backed by 151 passing application tests and six backup verification tests, a separate real-Chromium CDP crash-recovery test, CI security checks and live deployment on my self-hosted PaaS ([AetherHost](https://smart-crawler.aetherhost.app)).
 
-I am currently based in Abuja, Nigeria, available immediately for the remote work trial, and open to relocation/work-authorization pathways for Toronto or San Francisco. I would love to walk through the architecture, failure modes, and test suite with you.
+I am based in Abuja, Nigeria and would welcome a discussion about the work trial and the role's location requirements. I would love to walk through the architecture, failure modes, and test suite with you.
 
 ## Web Automation Engineer: tailored application note
 
@@ -62,7 +62,7 @@ Live: `https://smart-crawler.aetherhost.app` | Repo: `https://github.com/Emjaay2
 - Engineered an HTTP-first web extraction API and TypeScript SDK converting arbitrary URLs into clean Markdown and structured JSON via Mozilla Readability with bounded Playwright fallback.
 - Hardened outbound fetching against SSRF and DNS rebinding by validating resolved IPv4/IPv6 addresses, pinning direct HTTP/HTTPS sockets, re-validating every redirect hop, and isolating guest jobs via `HttpOnly`/`Secure` session cookies.
 - Implemented a deterministic breadth-first crawl scheduler (concurrency 1–4) with per-origin pacing, versioned SQLite WAL checkpoints, idempotent administrator resume after worker `SIGKILL`, and online `VACUUM INTO` database backups.
-- Built a 146-test automated Vitest suite plus opt-in real-Chromium CDP crash-injection recovery, local HTTPS cookie verification, and zero-vulnerability lockfiles across backend and UI.
+- Built a 151-test automated Vitest suite plus opt-in real-Chromium CDP crash-injection recovery, local HTTPS cookie verification, with separately verified private backups.
 
 **AetherHost — Multi-Tenant Container Deployment Platform** | *Go, TypeScript, Next.js, Docker Compose, Traefik, PostgreSQL, Redis*  
 Repo & Platform: `https://aetherhost.app`
@@ -75,7 +75,12 @@ Live: `https://project-3-frontend-urxv.vercel.app/`
 ## Demo outline for interviews
 
 1. Run a live scrape and inspect health/readiness on `https://smart-crawler.aetherhost.app`.
-2. Show SDK deadline enforcement (`SmartCrawlTimeoutError`) and redirect refusal in `src/sdk.ts`.
+2. Show SDK deadline enforcement (`SmartCrawlTimeoutError`) and redirect refusal in `src/client.ts`.
 3. Run `npm run test:browser` locally to demonstrate real Chromium context isolation and CDP `Browser.crash` recovery.
 4. Run `tests/crawl-checkpoint.test.ts` to show `SIGKILL` worker interruption and resume from the last committed SQLite WAL batch.
 5. Run `npm run db:backup` and show online `VACUUM INTO` backup and integrity check.
+
+
+## Updated application package
+
+Role-specific CV review PDFs, private form-answer drafts and the demo script are generated under the ignored `output/` directory. They are kept out of the public repository. Personal sponsorship, relocation and availability answers require candidate confirmation. The Web Automation form asks for production challenge-system and success-rate evidence that this repository does not establish.
